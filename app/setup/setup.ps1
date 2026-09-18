@@ -690,6 +690,7 @@ function New-Shortcut($path, $target, $arguments, $root) {
 }
 
 $variant = $sync.Variant
+$pyX64 = 'cpython-3.11-windows-x86_64-none'
 $torchIndex = "https://download.pytorch.org/whl/$variant"
 $torchPkgs = "torch==2.11.0+$variant torchaudio==2.11.0+$variant torchvision==0.26.0+$variant"
 $expectedCache = if ($variant -eq 'cpu') { 1.6GB } else { 5.5GB }
@@ -750,7 +751,8 @@ try {
                     $v = & $venvPy -c "import sys;print('%d.%d' % sys.version_info[:2])" 2>$null
                     if ($v -in @('3.11', '3.12')) { Set-Step $i 'skip'; $sync.Detail = $T.d_py_have -f $v; continue }
                 }
-                Invoke-Logged $uv 'python install 3.11' 'python' {
+                # immer x64: auf ARM-Laptops (Snapdragon) gibt es die KI-Pakete nur für x64, Windows emuliert das
+                Invoke-Logged $uv "python install $pyX64" 'python' {
                     param($lines)
                     $sync.StepPct = [math]::Min(0.95, (Dir-Size $env:UV_PYTHON_INSTALL_DIR) / 80MB)
                     foreach ($l in $lines) { $sync.Detail = $l }
@@ -759,7 +761,7 @@ try {
             'venv' {
                 if (Test-Path $venvPy) { Set-Step $i 'skip'; continue }
                 $sync.Detail = $T.d_venv
-                Invoke-Logged $uv "venv `"$(Join-Path $root '.venv')`" --python 3.11 --seed" 'venv' { param($l) $sync.StepPct = 0.5 }
+                Invoke-Logged $uv "venv `"$(Join-Path $root '.venv')`" --python $pyX64 --seed" 'venv' { param($l) $sync.StepPct = 0.5 }
             }
             'packages' {
                 $req = Join-Path $root 'app\setup\requirements-lock.txt'

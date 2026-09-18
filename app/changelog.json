@@ -1,5 +1,13 @@
 [
   {
+    "build": 15,
+    "date": "2026-09-19",
+    "changes": [
+      "Faster speech recognition on PCs without an NVIDIA graphics card: it now uses all processor cores instead of four.",
+      "The setup now always installs the x64 version of Python, so it should also work on Windows laptops with an ARM processor (for example Snapdragon). Not tested on such a laptop yet."
+    ]
+  },
+  {
     "build": 14,
     "date": "2026-09-19",
     "changes": [
