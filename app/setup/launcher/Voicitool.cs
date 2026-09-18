@@ -487,7 +487,7 @@ namespace Voicitool
         static Process StartSetup(string script, string extra, string workDir)
         {
             string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"WindowsPowerShell\v1.0\powershell.exe");
-            var psi = new ProcessStartInfo(ps, "-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File \"" + script + "\" " + extra);
+            var psi = new ProcessStartInfo(ps, "-NoProfile -ExecutionPolicy Bypass -STA -File \"" + script + "\" " + extra);
             psi.WorkingDirectory = workDir;
             psi.UseShellExecute = false;
             psi.CreateNoWindow = true;

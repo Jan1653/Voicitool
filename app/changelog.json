@@ -1,5 +1,12 @@
 [
   {
+    "build": 16,
+    "date": "2026-09-19",
+    "changes": [
+      "New Voicitool.exe: Windows Defender wrongly flagged the previous one as \"Trojan:Win32/Wacatac.B!ml\". The new exe drops a start option that virus scanners often dislike and has been reported to Microsoft as a false alarm."
+    ]
+  },
+  {
     "build": 15,
     "date": "2026-09-19",
     "changes": [

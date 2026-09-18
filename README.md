@@ -10,6 +10,8 @@ It all runs on your own PC. Your videos are not uploaded anywhere. The only uplo
 
 1. Download `Voicitool.exe` from the [latest release](https://github.com/Jan1653/Voicitool/releases/latest).
 2. Double-click it. Windows will most likely show a blue box saying "Windows protected your PC". That happens because the exe is not signed (a signing certificate costs money every year). Click **More info**, then **Run anyway**.
+
+   Windows Defender may also block the download as "Trojan:Win32/Wacatac.B!ml". The "!ml" means it was guessed by Defender's automatic detection, not matched against a known virus. This happens a lot with new programs that nobody has signed, and it is a false alarm that gets reported to Microsoft. If you don't want to trust the exe, all the code is here and `Exe bauen.bat` builds the same exe on your own PC.
 3. The setup checks your PC. You choose where to install, which language packs you want and whether you want shortcuts. The setup language follows Windows and can be changed at the top right.
 4. It then downloads Python, the AI packages and the AI models, about 10 GB in total. Depending on your internet connection this takes 10 to 40 minutes. You don't need admin rights.
 
