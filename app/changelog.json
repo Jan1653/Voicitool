@@ -1,0 +1,14 @@
+[
+  {
+    "build": 13,
+    "date": "2026-09-19",
+    "changes": [
+      "First public version on GitHub.",
+      "Voicitool and the setup now start in your Windows language. The setup language can be changed at the top right.",
+      "Updates can be installed from inside the app: a note appears at the top when a new version is out.",
+      "After starting, the small start window stays until Voicitool is ready and then brings it to the front.",
+      "After an update, the installation is checked in the background instead of opening the whole setup.",
+      "A failed update no longer blocks the start. Voicitool then simply starts the version you already have."
+    ]
+  }
+]

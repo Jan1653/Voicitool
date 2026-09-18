@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voicitool</title>
+<script src="theme.js"></script>
+<script src="icons.js"></script>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="topbar">
+  <button class="brand" id="btnHome" title="Zur Übersicht">
+    <img src="icon.png" alt="">
+    <span class="brand-text"><b>Voicitool</b><span class="by">von Jan1653</span></span>
+  </button>
+  <button class="back-btn" id="btnBack" title="Zur Übersicht"><i data-ic="arrow-back"></i><span>Zur Übersicht</span></button>
+  <div class="proj-title" id="projTitle" data-nolang title="Klicken zum Umbenennen"></div>
+  <div class="save-state" id="saveState"></div>
+  <div class="spacer"></div>
+  <div class="jobbox" id="jobBox" hidden>
+    <div class="job-label" id="jobLabel"></div>
+    <div class="bar"><div id="jobBar"></div></div>
+    <button class="icon-btn small-x" id="jobCancel" title="Diesen Vorgang abbrechen"><i data-ic="close"></i></button>
+  </div>
+  <button class="icon-btn" id="btnSettings" title="Einstellungen"><i data-ic="gear"></i></button>
+</header>
+<div class="notice danger" id="connWarn" hidden role="status">
+  <span class="notice-icon"><i data-ic="hourglass"></i></span><span id="connWarnText"></span>
+</div>
+<div class="notice warn" id="jobWarn" hidden role="alert">
+  <span class="notice-icon"><i data-ic="warning"></i></span>
+  <div class="notice-body"><b id="jobWarnTitle"></b><span id="jobWarnText"></span></div>
+  <button class="btn small" id="jobWarnCpu" hidden>Auf dem Prozessor neu starten</button>
+  <button class="btn small" id="jobWarnLog">Protokoll</button>
+  <button class="btn small danger" id="jobWarnCancel">Abbrechen</button>
+  <button class="btn small quiet" id="jobWarnWait">Weiter warten</button>
+</div>
+<div class="notice info" id="healthNote" hidden>
+  <span class="notice-icon"><i data-ic="pulse"></i></span>
+  <div class="notice-body"><b>Systemcheck</b><span id="healthText"></span></div>
+  <button class="btn small" id="healthShow">Ansehen</button>
+  <button class="btn small quiet" id="healthHide">Ausblenden</button>
+</div>
+<div class="notice info" id="updNote" hidden>
+  <span class="notice-icon"><i data-ic="download"></i></span>
+  <div class="notice-body"><b>Update verfügbar</b><span id="updText"></span></div>
+  <button class="btn small primary" id="updApply">Jetzt aktualisieren</button>
+  <button class="btn small" id="updNews">Was ist neu?</button>
+  <button class="btn small quiet" id="updLater">Später</button>
+</div>
+<div class="notice info" id="newsNote" hidden>
+  <span class="notice-icon"><i data-ic="sparkles"></i></span>
+  <div class="notice-body"><b>Voicitool wurde aktualisiert</b><span id="newsText"></span></div>
+  <button class="btn small" id="newsShow">Was ist neu?</button>
+  <button class="btn small quiet" id="newsHide">Ausblenden</button>
+</div>
+
+<!-- ============================================================ EINSTELLUNGEN -->
+<div class="overlay" id="settings" hidden>
+  <div class="sheet settings-sheet" role="dialog" aria-labelledby="setTitle">
+    <nav class="set-nav" id="setNav">
+      <div class="set-nav-title">Einstellungen</div>
+      <button data-sec="look" class="on"><span class="ico"><i data-ic="palette"></i></span><span>Darstellung</span></button>
+      <button data-sec="lang"><span class="ico"><i data-ic="globe"></i></span><span>Sprache</span></button>
+      <button data-sec="new"><span class="ico"><i data-ic="clapper"></i></span><span>Neue Projekte</span></button>
+      <button data-sec="editor"><span class="ico"><i data-ic="scissors"></i></span><span>Editor</span></button>
+      <button data-sec="export"><span class="ico"><i data-ic="package"></i></span><span>Export</span></button>
+      <button data-sec="models"><span class="ico"><i data-ic="sparkles"></i></span><span>KI-Modelle</span></button>
+      <button data-sec="storage"><span class="ico"><i data-ic="database"></i></span><span>Speicher</span></button>
+      <button data-sec="system"><span class="ico"><i data-ic="monitor"></i></span><span>System</span></button>
+      <button data-sec="updates"><span class="ico"><i data-ic="refresh"></i></span><span>Updates</span></button>
+      <button data-sec="keys"><span class="ico"><i data-ic="keyboard"></i></span><span>Tastenkürzel</span></button>
+      <button data-sec="about"><span class="ico"><i data-ic="info"></i></span><span>Über Voicitool</span></button>
+    </nav>
+    <div class="set-main">
+      <div class="sheet-head">
+        <h2 id="setTitle">Darstellung</h2>
+        <button class="icon-btn" id="setClose" title="Schließen"><i data-ic="close"></i></button>
+      </div>
+      <div class="sheet-body" id="setBody">
+
+        <section data-sec="look">
+          <div class="set-row">
+            <div><div class="set-label">Farbschema</div><div class="set-hint" id="themeHint"></div></div>
+            <div class="seg" id="setTheme">
+              <button data-v="system">System</button><button data-v="light">Hell</button><button data-v="dark">Dunkel</button>
+            </div>
+          </div>
+          <div class="set-row column">
+            <div class="set-label">Akzentfarbe</div>
+            <div class="swatches" id="setAccent">
+              <button data-v="violett" title="Violett"></button><button data-v="blau" title="Blau"></button>
+              <button data-v="gruen" title="Grün"></button><button data-v="orange" title="Orange"></button>
+              <button data-v="pink" title="Pink"></button><button data-v="rot" title="Rot"></button>
+              <button data-v="tuerkis" title="Türkis"></button>
+              <button type="button" class="swatch-custom" id="setCustomBtn" title="Eigene Farbe"><span class="swatch-dot" id="setCustomDot"></span><span>Eigene</span></button>
+            </div>
+          </div>
+          <div class="set-row">
+            <div><div class="set-label">Bewegungen reduzieren</div><div class="set-hint">Weniger Animationen, ruhigere Oberfläche.</div></div>
+            <label class="switch"><input type="checkbox" data-setting="reduce_motion"><span class="slider"></span></label>
+          </div>
+          <div class="set-row">
+            <div><div class="set-label">Größe der Oberfläche</div><div class="set-hint">Automatisch wächst alles mit dem Fenster mit.</div></div>
+            <select data-setting="ui_scale">
+              <option value="auto">Automatisch</option><option value="90">90 %</option><option value="100">100 %</option>
+              <option value="110">110 %</option><option value="125">125 %</option><option value="150">150 %</option>
+            </select>
+          </div>
+        </section>
+
+        <section data-sec="lang" hidden>
+          <div class="set-row">
+            <div><div class="set-label">Sprache der Oberfläche</div><div class="set-hint">Neue Figuren heißen dann auch in dieser Sprache (Speaker 1, Sprecher 1 …).</div></div>
+            <select id="setLang" data-nolang></select>
+          </div>
+          <p class="set-note">Die Sprache der Texterkennung wählst du pro Video im Eingang. Weitere Sprachen für die Erkennung gibt es unter KI-Modelle.</p>
+        </section>
+
+        <section data-sec="new" hidden>
+          <div class="set-row">
+            <div class="set-label">Qualität</div>
+            <select data-setting="default_quality" id="setDefQuality"></select>
+          </div>
+          <div class="set-row">
+            <div class="set-label">Sprache der Texterkennung</div>
+            <select data-setting="default_language" id="setDefLanguage"></select>
+          </div>
+          <div class="set-row">
+            <div><div class="set-label">Lacher erkennen</div><div class="set-hint">Legt Lacher als eigene Zeilen an.</div></div>
+            <label class="switch"><input type="checkbox" data-setting="default_laugh"><span class="slider"></span></label>
+          </div>
+          <p class="set-note">Credits für Voicitool sind bei jedem neuen Projekt an. Abschalten kannst du sie pro Projekt im Export.</p>
+        </section>
+
+        <section data-sec="editor" hidden>
+          <div class="set-row">
+            <div><div class="set-label">Einrasten</div><div class="set-hint">Ränder springen an Playhead und benachbarte Zeilen.</div></div>
+            <label class="switch"><input type="checkbox" data-setting="snap"><span class="slider"></span></label>
+          </div>
+          <div class="set-row">
+            <div><div class="set-label">Liste folgt dem Video</div><div class="set-hint">Beim Abspielen zur aktuellen Zeile scrollen.</div></div>
+            <label class="switch"><input type="checkbox" data-setting="follow"><span class="slider"></span></label>
+          </div>
+          <div class="set-row">
+            <div><div class="set-label">Text neuer Zeilen automatisch erkennen</div><div class="set-hint">Neue Zeilen bekommen ihren Text per KI.</div></div>
+            <label class="switch"><input type="checkbox" data-setting="auto_text"><span class="slider"></span></label>
+          </div>
+          <div class="set-row">
+            <div><div class="set-label">Löschen bestätigen</div><div class="set-hint">Vor dem Löschen einer Zeile nachfragen.</div></div>
+            <label class="switch"><input type="checkbox" data-setting="confirm_delete"><span class="slider"></span></label>
+          </div>
+          <div class="set-row">
+            <div class="set-label">Geschwindigkeit beim Öffnen</div>
+            <select data-setting="playback_rate"><option value="0.5">0,5×</option><option value="0.75">0,75×</option><option value="1">1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option></select>
+          </div>
+        </section>
+
+        <section data-sec="export" hidden>
+          <p class="set-note">Gilt für neue Projekte. Bestehende Projekte behalten ihre Einstellungen im Tab Export.</p>
+          <div class="set-row">
+            <div class="set-label">Max. Höhe des Videos</div>
+            <select data-setting="export_video_height"><option value="480">480p</option><option value="720">720p</option><option value="1080">1080p</option></select>
+          </div>
+          <div class="set-row">
+            <div class="set-label">Max. FPS</div>
+            <select data-setting="export_video_fps"><option value="24">24</option><option value="30">30</option><option value="60">60</option></select>
+          </div>
+          <div class="set-row">
+            <div class="set-label">Video-Qualität</div>
+            <span class="row-inline"><input type="range" min="3" max="10" step="1" data-setting="export_video_quality"><span id="setVq"></span></span>
+          </div>
+          <div class="set-row">
+            <div class="set-label">Lautstärke der Clips</div>
+            <select data-setting="export_normalize">
+              <option value="clip">Jeden Clip laut machen (bestes Scoring)</option>
+              <option value="gemeinsam">Alle gemeinsam anheben (Verhältnis bleibt)</option>
+              <option value="aus">Unverändert</option>
+            </select>
+          </div>
+          <div class="set-row">
+            <div class="set-label">Bild pro Zeile</div>
+            <select data-setting="export_image_mode">
+              <option value="frame">Standbild vom Zeilenanfang</option>
+              <option value="charakter">Charakterbild (sonst Standbild)</option>
+              <option value="keins">Keins</option>
+            </select>
+          </div>
+          <div class="set-row">
+            <div><div class="set-label">Zeilen-Dateien</div><div class="set-hint">Das Spiel liest beide Formate, der Inhalt ist gleich.</div></div>
+            <select data-setting="export_line_format">
+              <option value="ini">.ini (Standard)</option>
+              <option value="txt">.txt (wie viele neuere Community-Packs)</option>
+            </select>
+          </div>
+          <div class="set-row">
+            <div class="set-label">Stimmen ohne Zeile im Hintergrund lassen</div>
+            <label class="switch"><input type="checkbox" data-setting="export_keep_voices"><span class="slider"></span></label>
+          </div>
+          <div class="set-row column">
+            <div><div class="set-label">Pack-Ordner des Spiels</div><div class="set-hint">Dorthin installiert „Exportieren &amp; ins Spiel installieren“.</div></div>
+            <div class="url-row full">
+              <input id="setGameDir" spellcheck="false">
+              <button class="btn small" id="setGameDirReset">Standard</button>
+              <button class="btn small" data-open="game">Öffnen</button>
+            </div>
+          </div>
+        </section>
+
+        <section data-sec="models" hidden>
+          <p class="set-note">Englisch ist dabei. Für andere Sprachen ein Paket „Alle Sprachen“ laden. Alles bleibt auf deinem PC.</p>
+          <div id="modelList" class="model-list"></div>
+          <div class="set-row">
+            <div><div class="set-label">Modell für die Texterkennung</div><div class="set-hint">„Automatisch“ nimmt das Modell, das zur Qualitätsstufe und Sprache passt.</div></div>
+            <select id="setWhisper"></select>
+          </div>
+        </section>
+
+        <section data-sec="storage" hidden>
+          <div id="storageList" class="storage-list"></div>
+          <div class="set-row">
+            <div><div class="set-label">Programmordner</div><div class="set-hint" id="storageRoot"></div></div>
+            <span class="row-inline"><button class="btn small" data-open="root">Öffnen</button><button class="btn small" data-open="logs">Protokolle</button></span>
+          </div>
+        </section>
+
+        <section data-sec="system" hidden>
+          <div class="set-row">
+            <div><div class="set-label">Rechnen auf</div><div class="set-hint">Automatisch nimmt die Grafikkarte, wenn sie passt.</div></div>
+            <select data-setting="compute_device">
+              <option value="auto">Automatisch</option><option value="cpu">Nur Prozessor</option>
+            </select>
+          </div>
+          <div class="set-row column">
+            <div class="set-label">Dieser PC</div>
+            <div class="sys-grid" id="sysGrid"><div class="set-note">Wird geprüft …</div></div>
+          </div>
+          <div class="set-row column">
+            <div class="set-label">Hinweise</div>
+            <ul class="dlg-list" id="sysHealth"></ul>
+          </div>
+          <div class="set-row">
+            <div><div class="set-label">Systemcheck</div><div class="set-hint">Prüft Grafikkarte, Treiber, Speicher und Modelle neu.</div></div>
+            <div class="row-btns">
+              <button class="btn" id="btnSysCheck">Jetzt prüfen</button>
+              <button class="btn" data-open="logs">Protokolle</button>
+            </div>
+          </div>
+          <div class="set-row">
+            <div><div class="set-label">Ausgeblendete Warnungen</div><div class="set-hint">Warnungen vor dem Start, bei denen „nicht mehr zeigen“ gewählt wurde.</div></div>
+            <button class="btn" id="btnShowWarnings">Wieder zeigen</button>
+          </div>
+        </section>
+
+        <section data-sec="updates" hidden>
+          <div class="set-row">
+            <div><div class="set-label">Beim Start nach Updates suchen</div><div class="set-hint">Voicitool.exe lädt neue Versionen von GitHub und prüft danach die Installation.</div></div>
+            <label class="switch"><input type="checkbox" data-setting="check_updates"><span class="slider"></span></label>
+          </div>
+          <div class="set-row">
+            <div><div class="set-label">Installierte Version</div><div class="set-hint" id="updVersion"></div></div>
+            <div class="row-btns">
+              <button class="btn small" id="btnNews">Was ist neu?</button>
+              <button class="btn small" id="btnUpdCheck">Jetzt prüfen</button>
+            </div>
+          </div>
+          <p class="set-note" id="updResult"></p>
+        </section>
+
+        <section data-sec="keys" hidden>
+          <table class="keys-table">
+            <tr><td><kbd>Leertaste</kbd></td><td>Abspielen oder anhalten</td></tr>
+            <tr><td><kbd><i data-ic="arrow-left"></i></kbd> <kbd><i data-ic="arrow-right"></i></kbd></td><td>1 Sekunde zurück oder vor (mit Umschalt 5 Sekunden)</td></tr>
+            <tr><td><kbd><i data-ic="arrow-up"></i></kbd> <kbd><i data-ic="arrow-down"></i></kbd></td><td>Vorherige oder nächste Zeile</td></tr>
+            <tr><td><kbd>Enter</kbd></td><td>Zeile abspielen</td></tr>
+            <tr><td><kbd>N</kbd></td><td>Neue Zeile am Playhead</td></tr>
+            <tr><td><kbd>I</kbd> <kbd>O</kbd></td><td>Start oder Ende auf den Playhead setzen</td></tr>
+            <tr><td><kbd>S</kbd></td><td>Zeile am Playhead teilen</td></tr>
+            <tr><td><kbd>M</kbd></td><td>Mit der nächsten Zeile desselben Sprechers zusammenführen</td></tr>
+            <tr><td><kbd>1</kbd> bis <kbd>9</kbd></td><td>Sprecher zuweisen</td></tr>
+            <tr><td><kbd>Strg</kbd>+<kbd>C</kbd> <kbd>X</kbd> <kbd>V</kbd></td><td>Zeile kopieren, ausschneiden, am Playhead einfügen</td></tr>
+            <tr><td><kbd>Entf</kbd></td><td>Zeile löschen</td></tr>
+            <tr><td><kbd>Strg</kbd>+<kbd>Z</kbd> <kbd>Y</kbd></td><td>Rückgängig oder wiederholen</td></tr>
+            <tr><td><kbd>Strg</kbd>+Mausrad</td><td>Timeline zoomen</td></tr>
+            <tr><td>Rechtsklick</td><td>Menü in der Timeline</td></tr>
+          </table>
+        </section>
+
+        <section data-sec="about" hidden>
+          <div class="about">
+            <img src="icon.png" alt="">
+            <div>
+              <div><b>Voicitool</b> <span id="aboutVersion" class="muted"></span></div>
+              <div class="muted small">Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.</div>
+              <div class="small" id="aboutRepo"></div>
+            </div>
+          </div>
+          <div class="row">
+            <button class="btn small" id="btnSetupCheck">Installation prüfen</button>
+            <button class="btn small danger" id="btnUninstall">Deinstallieren …</button>
+          </div>
+          <p class="set-note">Alles läuft auf deinem PC. Videos, Stimmen und Projekte werden nirgendwohin hochgeladen.</p>
+          <p class="set-note">Voicitool nutzt freie Software: Whisper, faster-whisper, BS-RoFormer, audio-separator, SpeechBrain, Audio Spectrogram Transformer, PyTorch, yt-dlp, deno, ffmpeg und pywebview.</p>
+          <p class="set-note">Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ ÜBERSICHT -->
+<main id="home" class="home">
+  <section class="card drop" id="dropZone">
+    <div class="drop-icon"><i data-ic="clapper"></i></div>
+    <div class="drop-title">Video hierher ziehen</div>
+    <div class="muted small">oder in den Ordner <code>eingang</code> legen · MP4, MKV, MOV, WEBM …</div>
+    <label class="btn">Datei wählen<input type="file" id="fileInput" accept="video/*,.mkv,.ogv" hidden multiple></label>
+    <div class="url-row">
+      <input id="urlInput" type="url" placeholder="… oder Link einfügen (YouTube &amp; andere Video-Seiten)" spellcheck="false">
+      <button class="btn primary" id="btnUrl">Laden</button>
+    </div>
+    <div class="muted small">Bitte nur Videos laden, die du auch verwenden darfst.</div>
+    <div class="upload-state" id="uploadState"></div>
+  </section>
+
+  <section class="card inbox-card">
+    <h2>Eingang <span class="pill" id="inboxCount"></span></h2>
+    <p class="muted">Neue Videos. Beim Verarbeiten wandert das Video ins Projekt.</p>
+    <div id="inboxList" class="list scroll-list"></div>
+  </section>
+
+  <section class="card projects-card">
+    <div class="card-head">
+      <h2>Projekte <span class="pill" id="projectCount"></span></h2>
+      <button class="btn small" id="btnAddCat" title="Projekte in Kategorien sortieren und zusammen teilen"><i data-ic="folder-plus"></i><span>Neue Kategorie</span></button>
+      <input id="projSearch" type="search" placeholder="Projekte suchen…" spellcheck="false">
+      <select id="projSort" title="Sortieren">
+        <option value="recent">Zuletzt bearbeitet</option>
+        <option value="custom">Eigene Reihenfolge</option>
+        <option value="name">Name</option>
+        <option value="length">Länge</option>
+        <option value="status">Status</option>
+      </select>
+    </div>
+    <div id="projectList" class="list scroll-list"></div>
+  </section>
+
+  <footer class="credit home-foot">
+    <span><b>Ablauf:</b> Video verarbeiten → Charaktere benennen → durchschauen &amp; korrigieren → als Choicer-Voicer-Dub-Pack exportieren.</span>
+    <span>Voicitool · erstellt von <b>Jan1653</b></span>
+  </footer>
+</main>
+
+<!-- ============================================================ EDITOR -->
+<main id="editor" class="editor" hidden>
+  <section class="left">
+    <div class="video-wrap">
+      <video id="video" preload="auto" playsinline></video>
+    </div>
+    <div class="caption" id="caption" aria-live="polite"></div>
+    <audio id="audioVoc" preload="auto"></audio>
+    <audio id="audioBack" preload="auto"></audio>
+
+    <div class="transport">
+      <button class="icon-btn" id="btnPlay" title="Abspielen/Pause (Leertaste)"><i data-ic="play"></i></button>
+      <span class="time" id="timeLabel">0:00.00 / 0:00</span>
+      <div class="seg" id="audioMode" title="Was hörst du?">
+        <button data-mode="orig" class="on">Original</button>
+        <button data-mode="stimmen">Nur Stimmen</button>
+        <button data-mode="hinter">Hintergrund</button>
+      </div>
+      <select id="rate" title="Geschwindigkeit">
+        <option value="0.5">0,5×</option><option value="0.75">0,75×</option>
+        <option value="1" selected>1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option>
+      </select>
+      <label class="check follow-toggle" title="Liste folgt dem Video"><span class="switch sm"><input type="checkbox" id="follow" checked><span class="slider"></span></span><span>Mitlaufen</span></label>
+      <div class="spacer"></div>
+      <button class="icon-btn" id="btnZoomOut" title="Timeline herauszoomen (−)"><i data-ic="zoom-out"></i></button>
+      <button class="icon-btn" id="btnZoomIn" title="Timeline hineinzoomen (+)"><i data-ic="zoom-in"></i></button>
+    </div>
+
+    <div class="hsplit" id="tlSplit" title="Ziehen: Timeline größer/kleiner · Doppelklick: Standardgröße"></div>
+    <div class="timeline-wrap" id="timelineWrap">
+      <canvas id="timeline"></canvas>
+    </div>
+    <div class="keys muted small">
+      <span><b>Timeline:</b> leere Spur ziehen = neue Zeile · Block ziehen = verschieben (auch zu anderem Sprecher) · Ränder ziehen · <b>Rechtsklick = Menü</b> · <kbd>Strg</kbd>+Rad zoomen</span>
+      <span><kbd>Leer</kbd> Play</span><span><kbd><i data-ic="arrow-left"></i></kbd><kbd><i data-ic="arrow-right"></i></kbd> ±1 s</span>
+      <span><kbd><i data-ic="arrow-up"></i></kbd><kbd><i data-ic="arrow-down"></i></kbd> Zeile</span><span><kbd>Enter</kbd> abspielen</span>
+      <span><kbd>N</kbd> neue Zeile</span><span><kbd>I</kbd>/<kbd>O</kbd> Start/Ende = Playhead</span>
+      <span><kbd>S</kbd> teilen</span><span><kbd>M</kbd> zusammenführen</span>
+      <span><kbd>1</kbd> bis <kbd>9</kbd> Sprecher</span><span><kbd>Strg</kbd>+<kbd>C</kbd>/<kbd>X</kbd>/<kbd>V</kbd></span>
+      <span><kbd>Entf</kbd> löschen</span><span><kbd>Strg</kbd>+<kbd>Z</kbd> rückgängig</span>
+    </div>
+  </section>
+
+  <div class="vsplit" id="sideSplit" title="Ziehen: Seitenleiste breiter/schmaler"></div>
+  <aside class="right">
+    <nav class="tabs" id="tabs">
+      <button data-tab="lines" class="on">Zeilen <span id="lineCount" class="pill"></span></button>
+      <button data-tab="chars">Charaktere <span id="charCount" class="pill"></span></button>
+      <button data-tab="export">Export</button>
+    </nav>
+
+    <div class="tab" id="tab-lines">
+      <div class="one-voice" id="langUnsure" hidden>
+        <i data-ic="globe"></i>
+        <span id="langUnsureText"></span>
+        <select id="langUnsureSel"></select>
+        <button class="btn small" id="btnLangRedo">Neu verarbeiten</button>
+      </div>
+      <div class="toolbar">
+        <button class="btn small" id="btnAddLine" title="Neue Zeile am Playhead (N)"><i data-ic="plus"></i><span>Zeile</span></button>
+        <button class="btn small" id="btnRepeats" title="Gleiche Sätze desselben Sprechers zu einer Aufnahme zusammenfassen. Das Spiel spielt sie an jeder Stelle ab"><i data-ic="repeat"></i><span>Wiederholungen</span></button>
+        <button class="btn small" id="btnLaughs" title="Lacher im Video finden und als Zeilen „(lacht)“ einfügen"><i data-ic="laugh"></i><span>Lacher finden</span></button>
+        <select id="charFilter"><option value="">Alle Charaktere</option></select>
+        <input type="search" id="textFilter" placeholder="Text suchen…">
+        <label class="check small" title="Text neuer Zeilen automatisch per KI erkennen"><input type="checkbox" id="autoText" checked> Text automatisch</label>
+        <div class="spacer"></div>
+        <button class="icon-btn" id="btnUndo" title="Rückgängig (Strg+Z)"><i data-ic="undo"></i></button>
+        <button class="icon-btn" id="btnRedo" title="Wiederholen (Strg+Y)"><i data-ic="redo"></i></button>
+      </div>
+      <div class="lines" id="lineList"></div>
+    </div>
+
+    <div class="tab" id="tab-chars" hidden>
+      <p class="muted small">Namen vergeben, Farben ändern, falsch getrennte Sprecher zusammenführen. Die Namen landen im Pack als Dub-Charaktere.</p>
+      <div class="one-voice" id="oneVoiceHint" hidden>
+        <i data-ic="info"></i>
+        <span>Nur eine Stimme erkannt. Sprechen mehrere, die ähnlich klingen (z. B. zwei, die sich anschreien)? Anzahl angeben und neu zuordnen, das trennt sie meist sauber.</span>
+        <button class="btn small" id="btnOneVoice">Anzahl angeben</button>
+      </div>
+      <div id="charList" class="chars"></div>
+      <button class="btn small" id="btnAddChar"><i data-ic="user-plus"></i><span>Charakter</span></button>
+
+      <details class="box" id="reclusterBox">
+        <summary>Sprecher automatisch neu zuordnen</summary>
+        <p class="muted small">Hilft, wenn zu viele oder zu wenige Sprecher erkannt wurden. Zeilen und Texte bleiben, <b>Namen und manuelle Zuordnungen gehen verloren.</b></p>
+        <div class="row">
+          <label>Anzahl Sprecher <input type="number" id="reclusterN" min="1" max="30" placeholder="auto"></label>
+          <button class="btn small" id="btnRecluster">Neu zuordnen</button>
+        </div>
+      </details>
+      <details class="box">
+        <summary>Zeilen neu aufteilen</summary>
+        <p class="muted small">Baut alle Zeilen neu aus der Erkennung. <b>Alle manuellen Änderungen gehen verloren.</b></p>
+        <div class="row">
+          <label>Ziel-Länge (s) <input type="number" id="segTarget" min="2" max="40" step="0.5" value="6"></label>
+          <label>Pause trennt ab (s) <input type="number" id="segPause" min="0.2" max="3" step="0.1" value="0.8"></label>
+          <button class="btn small" id="btnResegment">Neu aufteilen</button>
+        </div>
+      </details>
+    </div>
+
+    <div class="tab" id="tab-export" hidden>
+      <div class="form">
+        <label>Name (Projekt, Pack-Titel, Export-Ordner) <input id="exTitle"></label>
+        <label>Autor(en) <input id="exAuthor" placeholder="mit Komma trennen"></label>
+        <label>Untertitel <input id="exSubtitle" placeholder="optional"></label>
+        <label>Beschreibung / Readme <textarea id="exReadme" rows="2" placeholder="optional, z. B. Quelle des Videos"></textarea></label>
+        <div class="row icon-row">
+          <img id="exIconImg" alt="">
+          <div>
+            <div class="small">Pack-Icon</div>
+            <button class="btn small" id="btnIconFrame">Aktuellen Frame als Icon</button>
+          </div>
+        </div>
+
+        <fieldset>
+          <legend>Clips</legend>
+          <label class="radio"><input type="radio" name="clipSource" value="stimmen"> Nur Stimmen <span class="muted">(empfohlen, das Spiel bewertet die Wellenform)</span></label>
+          <label class="radio"><input type="radio" name="clipSource" value="original"> Original-Ton mit Musik</label>
+          <label class="radio" id="clipDiffRow" hidden><input type="radio" name="clipSource" value="differenz"> Original minus Instrumental <span class="muted">(exakte Stimmen)</span></label>
+          <label>Lautstärke
+            <select id="exNormalize">
+              <option value="clip">Jeden Clip laut machen (bestes Scoring)</option>
+              <option value="gemeinsam">Alle gemeinsam anheben (Verhältnis bleibt)</option>
+              <option value="aus">Unverändert</option>
+            </select>
+          </label>
+          <label>Bild pro Zeile
+            <select id="exImageMode">
+              <option value="frame">Standbild vom Zeilenanfang</option>
+              <option value="charakter">Charakterbild (sonst Standbild)</option>
+              <option value="keins">Keins</option>
+            </select>
+          </label>
+          <label title="Das Spiel liest beide Formate, der Inhalt ist gleich.">Zeilen-Dateien
+            <select id="exLineFormat">
+              <option value="ini">.ini (Standard)</option>
+              <option value="txt">.txt (wie viele neuere Community-Packs)</option>
+            </select>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Hintergrund</legend>
+          <label class="radio"><input type="radio" name="backingSource" value="auto"> Aus dem Video getrennt (KI)</label>
+          <label class="radio"><input type="radio" name="backingSource" value="eigene" id="backingOwnRadio" disabled> Eigene Instrumental-Datei</label>
+          <div class="row">
+            <label class="btn small"><i data-ic="music"></i><span>Instrumental wählen</span><input type="file" id="instFile" accept="audio/*,video/*" hidden></label>
+            <button class="btn small danger" id="btnInstRemove" hidden>Entfernen</button>
+          </div>
+          <div class="url-row">
+            <input id="instUrl" type="url" placeholder="oder Link zum Instrumental (YouTube und andere)" spellcheck="false">
+            <button class="btn small" id="btnInstUrl">Laden</button>
+          </div>
+          <div id="instReport" class="small muted">Hast du die offizielle Instrumental-Version? Dann wird sie automatisch auf das Video ausgerichtet und als Hintergrund genutzt.</div>
+          <label class="check"><input type="checkbox" id="exKeepVoices"> Stimmen, die keine Zeile sind, im Backing-Track lassen</label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Video</legend>
+          <div class="row">
+            <label>Max. Höhe
+              <select id="exHeight"><option value="480">480p</option><option value="720">720p</option><option value="1080">1080p</option></select>
+            </label>
+            <label>Max. FPS
+              <select id="exFps"><option value="24">24</option><option value="30">30</option><option value="60">60</option></select>
+            </label>
+            <label>Qualität <span class="row" style="margin:0;gap:6px;align-items:center"><input type="range" id="exQuality" min="3" max="10" step="1"> <span id="exQualityVal"></span></span></label>
+          </div>
+        </fieldset>
+
+        <details class="more-opts" id="exMore">
+          <summary><i data-ic="chevron-right"></i><span>Weitere Optionen</span></summary>
+          <div class="more-body">
+            <div class="credit-box">
+              <div class="credit-head">
+                <label class="switch" title="Bei jedem neuen Projekt an"><input type="checkbox" id="crEnabled"><span class="slider"></span></label>
+                <div class="credit-label">
+                  <div id="crPreview">Made with Voicitool</div>
+                  <div class="muted small">Credit für Voicitool im Pack</div>
+                </div>
+                <button type="button" class="icon-btn small" id="crMore" title="Weitere Einstellungen" aria-expanded="false"><i data-ic="chevron-down"></i></button>
+              </div>
+              <div class="credit-options" id="crOptions" hidden>
+                <label>Text
+                  <select id="crText">
+                    <option value="made_with">Made with Voicitool</option>
+                    <option value="made_with_by">Made with Voicitool by Jan1653</option>
+                    <option value="made_with_link" id="crTextLink">Made with Voicitool (mit Link)</option>
+                  </select>
+                </label>
+                <label class="check"><input type="checkbox" id="crAuthors"> In der Autorenliste des Packs</label>
+                <label class="check"><input type="checkbox" id="crReadme"> Als Zeile in der Beschreibung</label>
+                <label class="check"><input type="checkbox" id="crFiles"> Als Kennzeichnung in den Dateien (Tags, Kommentare)</label>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div id="exChecks" class="checks"></div>
+
+        <div class="row">
+          <button class="btn primary" id="btnExport">Pack exportieren</button>
+          <button class="btn" id="btnExportInstall">Exportieren &amp; ins Spiel installieren</button>
+        </div>
+        <div id="exResult" class="result"></div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<div class="toast" id="toast" hidden></div>
+<script src="lang/strings.js"></script>
+<script>
+  // Zusatzsprachen (lang/<code>.js): die Startsprache schon vor dem ersten Anzeigen laden, die übrigen erst bei Bedarf.
+  // Gleiche Reihenfolge wie in i18n.js: eigene Wahl, sonst Windows-Sprache.
+  (function () {
+    const files = window.VT_LANG_FILES || [];
+    const ok = l => ['en', 'de', 'es', 'fr', 'pt', 'it'].concat(files).includes(l);
+    const q = new URLSearchParams(location.search);
+    let saved = null;
+    try { saved = localStorage.getItem('voicitool.lang'); } catch (e) { /* privates Fenster */ }
+    const sys = [q.get('sys'), ...(navigator.languages || [navigator.language])].map(l => String(l || '').split('-')[0].toLowerCase());
+    const l = [q.get('lang'), saved, ...sys].find(ok);
+    if (files.includes(l)) document.write('<script src="lang/' + l + '.js"><\/script>');
+  })();
+</script>
+<script src="i18n.js"></script>
+<script src="tips.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,244 @@
+"""Eigene Instrumental-Version als Hintergrund verwenden.
+
+Die Datei wird automatisch auf das Video ausgerichtet:
+  1. grober Versatz über die Lautstärke-Hüllkurve
+  2. genauer Versatz und Auseinanderlaufen (Drift) über die Wellenform an mehreren Stellen
+  3. Tempo-/Versatz-Korrektur und Lautstärke-Angleich mit ffmpeg
+  4. Messung, wie gut es passt (und ob sich daraus sogar saubere Stimmen gewinnen lassen)
+"""
+import json
+
+import numpy as np
+import soundfile as sf
+
+from app.pipeline import media
+
+SR = 16000          # Analyse-Abtastrate
+ENV_FPS = 100       # Hüllkurve
+WIN = 10.0          # Länge der Prüffenster (s)
+MAX_FINE = 1.0      # Suchbereich für die Feinsuche um den groben Versatz (s)
+
+
+def _envelope(x, fps=ENV_FPS, sr=SR):
+    hop = sr // fps
+    n = len(x) // hop
+    env = np.sqrt(np.mean(x[: n * hop].reshape(n, hop) ** 2, axis=1) + 1e-10)
+    env = 20 * np.log10(env)
+    return env - env.mean()
+
+
+def _best_lag(ref, sig):
+    """Versatz von sig gegenüber ref (in Samples, positiv = sig liegt später) + Güte 0..1."""
+    n = 1 << int(np.ceil(np.log2(len(ref) + len(sig))))
+    a = ref - ref.mean()
+    b = sig - sig.mean()
+    cc = np.fft.irfft(np.fft.rfft(a, n) * np.conj(np.fft.rfft(b, n)), n)
+    cc = np.concatenate([cc[-(len(b) - 1):], cc[:len(a)]])
+    lags = np.arange(-(len(b) - 1), len(a))
+    i = int(np.argmax(cc))
+    norm = np.linalg.norm(a) * np.linalg.norm(b) + 1e-9
+    return int(lags[i]), float(cc[i] / norm)
+
+
+def measure(mix16, inst16):
+    """Versatz (s), Drift (s über die ganze Länge) und Güte der Übereinstimmung bestimmen."""
+    coarse_lag, coarse_score = _best_lag(_envelope(mix16), _envelope(inst16))
+    offset = -coarse_lag / ENV_FPS  # Sekunden; positiv = Instrumental kommt zu spät
+
+    # Feinmessung an mehreren Stellen (Wellenform)
+    win = int(WIN * SR)
+    search = int(MAX_FINE * SR)
+    points, scores = [], []
+    usable = min(len(inst16), len(mix16)) - win
+    for frac in (0.15, 0.35, 0.55, 0.75, 0.92):
+        s_inst = int(frac * max(1, usable))
+        if s_inst + win > len(inst16):
+            continue
+        piece = inst16[s_inst:s_inst + win]
+        center = s_inst + int(offset * SR)
+        lo, hi = max(0, center - search), min(len(mix16), center + win + search)
+        if hi - lo < win + 100 or np.abs(piece).max() < 1e-4:
+            continue
+        lag, score = _best_lag(mix16[lo:hi], piece)
+        points.append((s_inst / SR, (s_inst - (lo + lag)) / SR))  # (Stelle im Instrumental, Versatz dort)
+        scores.append(score)
+
+    if len(points) >= 2 and max(scores) > 0.15:
+        xs = np.array([p[0] for p in points])
+        ys = np.array([p[1] for p in points])
+        good = np.array(scores) > max(0.15, max(scores) * 0.4)
+        if good.sum() >= 2:
+            slope, intercept = np.polyfit(xs[good], ys[good], 1)
+        else:
+            slope, intercept = 0.0, float(np.median(ys))
+        quality = float(np.median(np.array(scores)[good])) if good.any() else float(max(scores))
+        length = len(inst16) / SR
+        return {"offset": float(intercept), "drift": float(slope * length), "slope": float(slope),
+                "quality": quality, "points": len(points)}
+    return {"offset": float(offset), "drift": 0.0, "slope": 0.0, "quality": float(coarse_score), "points": 0}
+
+
+def _apply(src, dst, offset, slope, gain, target_len, sr=44100):
+    """Instrumental mit ffmpeg passend machen: Tempo, Versatz, Länge, Lautstärke."""
+    filters = []
+    if abs(slope) > 1e-6:
+        tempo = 1.0 / (1.0 - slope)  # gleicht unterschiedliche Geschwindigkeit aus
+        tempo = min(max(tempo, 0.9), 1.1)
+        filters.append(f"atempo={tempo:.9f}")
+    if offset > 0:  # Instrumental beginnt zu spät -> vorne abschneiden
+        filters.append(f"atrim=start={offset:.4f}")
+    elif offset < 0:  # zu früh -> Stille voranstellen
+        filters.append(f"adelay=delays={abs(offset) * 1000:.1f}:all=1")
+    filters.append("asetpts=N/SR/TB")
+    if abs(gain - 1.0) > 0.01:
+        filters.append(f"volume={gain:.4f}")
+    filters.append(f"apad,atrim=end={target_len:.4f}")
+    media.run([media.FFMPEG, "-y", "-v", "error", "-i", str(src), "-af", ",".join(filters),
+               "-ac", "2", "-ar", str(sr), "-c:a", "pcm_s16le", str(dst)])
+
+
+def _nonvocal_mask(project_dir, n, fps=ENV_FPS, guard=0.25):
+    """Zeitbereiche ganz ohne Gesang (aus der getrennten Stimmen-Spur) als Maske.
+
+    Streng: leise Gesangsreste würden sonst die Lautstärke-Messung verfälschen. Zusätzlich wird
+    ein Sicherheitsabstand um jede Gesangsstelle freigehalten.
+    """
+    env_path = project_dir / "stimmen_env.npy"
+    if not env_path.exists():
+        return np.ones(n, dtype=bool)
+    env = np.load(env_path)  # 100 fps, dB
+    quiet = env < max(np.percentile(env, 99.5) - 45.0, -58.0)
+    k = int(guard * fps)
+    if k > 1:  # Randbereiche neben Gesang ebenfalls ausschließen
+        eroded = np.convolve(quiet.astype(float), np.ones(2 * k + 1), mode="same") >= (2 * k + 1) - 0.5
+        quiet = eroded
+    m = np.zeros(n, dtype=bool)
+    j = min(n, len(quiet))
+    m[:j] = quiet[:j]
+    if m.sum() < 20:  # kaum stille Stellen -> weniger streng
+        m[:j] = (env < max(np.percentile(env, 99.5) - 35.0, -50.0))[:j]
+    return m
+
+
+def _frames(x, fps=ENV_FPS, sr=44100):
+    hop = sr // fps
+    n = len(x) // hop
+    return x[: n * hop].reshape(n, hop)
+
+
+def align(project_dir, source, on_progress=None):
+    """Instrumental ausrichten -> instrumental.wav (+ Bericht). Gibt den Bericht zurück."""
+    d = project_dir
+    report = lambda p, msg: on_progress and on_progress(p, msg)
+
+    report(0.05, "Dateien werden geladen …")
+    mix16 = media.load_mono(d / "audio.wav")
+    inst16 = media.load_mono(source)
+    if len(inst16) < SR:
+        raise RuntimeError("Die Instrumental-Datei ist zu kurz oder enthält keinen Ton.")
+
+    report(0.25, "Versatz wird gemessen …")
+    m = measure(mix16, inst16)
+
+    report(0.55, "Lautstärke wird angeglichen …")
+    # grobe Vorab-Angleichung der Lautstärke über die Effektivwerte
+    gain = float(np.sqrt(np.mean(mix16 ** 2) / (np.mean(inst16 ** 2) + 1e-12)))
+    gain = min(max(gain, 0.2), 5.0)
+
+    target_len = len(mix16) / SR
+    out = d / "instrumental.wav"
+    report(0.65, "Instrumental wird angepasst …")
+    _apply(source, out, m["offset"], m["slope"], gain, target_len)
+
+    report(0.8, "Ergebnis wird geprüft …")
+    mix, sr = sf.read(d / "audio.wav", dtype="float32", always_2d=True)
+
+    def check_file():
+        """Lautstärke in gesangsfreien Stellen angleichen und messen, wie gut es passt."""
+        inst, _ = sf.read(out, dtype="float32", always_2d=True)
+        n = min(len(mix), len(inst))
+        a, b = mix[:n], inst[:n]
+        fr_mix, fr_inst = _frames(a.mean(axis=1), sr=sr), _frames(b.mean(axis=1), sr=sr)
+        quiet = _nonvocal_mask(d, min(len(fr_mix), len(fr_inst)))
+        fr_mix, fr_inst = fr_mix[:len(quiet)], fr_inst[:len(quiet)]
+        factor = 1.0
+        if quiet.sum() > 10:
+            rms_mix = float(np.sqrt(np.mean(fr_mix[quiet] ** 2)))
+            rms_inst = float(np.sqrt(np.mean(fr_inst[quiet] ** 2))) + 1e-9
+            factor = min(max(rms_mix / rms_inst, 0.2), 5.0)
+        if abs(factor - 1.0) > 0.02:
+            b = b * factor
+            sf.write(out, b, sr, subtype="PCM_16")
+        # bestmögliche Auslöschung (nur zur Messung): passende Skalierung suchen
+        scale = float(np.sum(a * b) / (np.sum(b * b) + 1e-9))
+        scale = min(max(scale, 0.2), 3.0)
+        residual = a - scale * b
+        fr_res = _frames(residual.mean(axis=1), sr=sr)[:len(quiet)]
+        if quiet.sum() > 10:
+            e_mix = float(np.mean(fr_mix[quiet] ** 2)) + 1e-12
+            e_res = float(np.mean(fr_res[quiet] ** 2)) + 1e-12
+            rest = 10 * np.log10(e_res / e_mix)
+        else:
+            rest = 0.0
+        return factor, float(rest), residual, scale
+
+    factor, rest_db, diff, _ = check_file()
+    gain *= factor
+
+    verify16 = media.load_mono(out)
+    check = measure(mix16, verify16)
+    if abs(check["offset"]) > 0.02:  # Nachkorrektur, falls noch ein Rest bleibt
+        report(0.85, "Feinkorrektur …")
+        m["offset"] += check["offset"]
+        _apply(source, out, m["offset"], m["slope"], gain, target_len)
+        factor, rest_db, diff, _ = check_file()
+        gain *= factor
+        verify16 = media.load_mono(out)
+        check = measure(mix16, verify16)
+    quality = max(m["quality"], check["quality"])
+    aligned = abs(check["offset"]) < 0.05
+
+    if aligned and quality > 0.4:
+        rating, note = "sehr gut", "Instrumental sitzt genau auf dem Video."
+    elif aligned and quality > 0.2:
+        rating, note = "gut", "Instrumental passt zum Video."
+    elif aligned and (quality > 0.1 or rest_db < -3):
+        rating, note = "mäßig", "Instrumental passt ungefähr, vermutlich eine andere Abmischung."
+    else:
+        rating, note = "passt nicht", "Instrumental ließ sich nicht sauber ausrichten (anderer Song oder Schnitt?)."
+    if rest_db < -10 and aligned:
+        note += " Es lassen sich sogar saubere Stimmen daraus gewinnen."
+
+    info = {
+        "datei": source.name,
+        "versatz": round(m["offset"], 3),
+        "drift": round(m["drift"], 3),
+        "lautstaerke": round(gain, 3),
+        "guete": round(quality, 3),
+        "restpegel_db": round(float(rest_db), 1),
+        "rest_versatz": round(abs(check["offset"]), 3),
+        "bewertung": rating,
+        "hinweis": note,
+        "stimmen_moeglich": bool(rest_db < -10 and aligned),
+        "laenge": round(target_len, 2),
+    }
+
+    if info["stimmen_moeglich"]:
+        report(0.9, "Stimmen werden aus der Differenz gewonnen …")
+        peak = float(np.abs(diff).max())
+        if peak > 1.0:
+            diff = diff / peak * 0.99
+        sf.write(d / "stimmen_diff.wav", diff, sr, subtype="PCM_16")
+    else:
+        (d / "stimmen_diff.wav").unlink(missing_ok=True)
+
+    (d / "instrumental.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf8")
+    report(1.0, f"{rating}: {note}")
+    return info
+
+
+def remove(project_dir):
+    for name in ("instrumental.wav", "instrumental.json", "stimmen_diff.wav"):
+        (project_dir / name).unlink(missing_ok=True)
+    for f in project_dir.glob("instrumental_quelle.*"):
+        f.unlink(missing_ok=True)

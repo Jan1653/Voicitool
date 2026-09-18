@@ -1,0 +1,21 @@
+# Nutzerdaten und Downloads – gehören nie ins Repo
+eingang/
+projekte/
+export/
+modelle/
+daten/
+tools/
+.venv/
+
+# Build-Ergebnis (wird als Release-Datei hochgeladen, nicht eingecheckt)
+Voicitool.exe
+*.zip
+
+# Python / Editor
+__pycache__/
+*.pyc
+.pytest_cache/
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
