@@ -1187,7 +1187,7 @@ let defaultGameDir = '';
 const SET_DEFAULTS = {
   theme: 'system', accent: 'violett', custom_color: '#3f7cf0', reduce_motion: false, ui_scale: 'auto',
   default_quality: '', default_language: '', default_laugh: true,
-  snap: true, follow: true, auto_text: true, confirm_delete: false, playback_rate: '1',
+  snap: true, follow: true, auto_text: true, confirm_delete: false, playback_rate: '1', usage_stats: true,
   export_video_height: 720, export_video_fps: 30, export_video_quality: 7, export_normalize: 'clip',
   export_image_mode: 'frame', export_keep_voices: true, check_updates: true, compute_device: 'auto', export_line_format: 'ini',
 };
@@ -1197,6 +1197,7 @@ async function loadSettings() {
   try {
     const r = await api('GET', '/api/settings');
     SET = r.settings || {}; defaultGameDir = r.default_game_dir || '';
+    statsSite = r.stats_site || ''; appBuild = r.build || 0;
   } catch { SET = {}; }
   const design = {};   // Design aus den gespeicherten Einstellungen übernehmen
   for (const k of ['theme', 'accent', 'custom_color', 'reduce_motion', 'ui_scale']) if (SET[k] !== undefined) design[k] = SET[k];
@@ -1213,6 +1214,7 @@ async function saveSetting(key, value) {
 }
 loadSettings().then(() => {
   afterUpdateNote();
+  countActive();
   if (setting('check_updates')) checkUpdate(false);
 });
 setInterval(() => { if (setting('check_updates')) checkUpdate(false); }, 6 * 3600e3);   // lange offene Fenster
@@ -1575,6 +1577,18 @@ $('#storageList').addEventListener('click', async e => {
   } catch (err) { toast(err.message, true); }
   renderStorage();
 });
+
+/* Anonyme Zählung: höchstens einmal am Tag „aktiv“ plus Build-Nummer an GoatCounter (keine Namen, Dateien oder
+   Kennungen). Läuft aus der Oberfläche, damit nur wirklich benutzte Installationen zählen. Abschaltbar unter
+   Einstellungen → Updates. Der Seitenname steht in app/version.json („stats“), leer = aus. */
+let statsSite = '', appBuild = 0;
+function countActive() {
+  if (!statsSite || !setting('usage_stats') || !/^[a-z0-9-]+$/.test(statsSite)) return;
+  const day = new Date().toISOString().slice(0, 10);
+  try { if (localStorage.getItem('vt.countDay') === day) return; localStorage.setItem('vt.countDay', day); } catch { return; }
+  const url = `https://${statsSite}.goatcounter.com/count?p=${encodeURIComponent('/build/' + appBuild)}&t=Voicitool&rnd=${Math.random().toString(36).slice(2)}`;
+  fetch(url, { mode: 'no-cors', credentials: 'omit', referrerPolicy: 'no-referrer', keepalive: true }).catch(() => {});
+}
 
 /* Updates: Hinweis oben, wenn auf GitHub eine neuere Version liegt („Jetzt aktualisieren“ startet über
    Voicitool.exe neu). Nach einem Update einmal „Was ist neu?“. Die Änderungen stehen in app/changelog.json. */

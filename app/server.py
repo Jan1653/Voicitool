@@ -607,13 +607,14 @@ SETTING_KEYS = {
     "export_video_height", "export_video_fps", "export_video_quality", "export_normalize", "export_image_mode",
     "export_keep_voices", "game_dir",
     # KI und Updates
-    "whisper_model", "check_updates", "ui_lang",
+    "whisper_model", "check_updates", "ui_lang", "usage_stats",
 }
 
 
 @app.get("/api/settings")
 def get_settings():
-    return {"settings": config.user_settings(), "default_game_dir": str(config.GAME_PACKS_DIR)}
+    return {"settings": config.user_settings(), "default_game_dir": str(config.GAME_PACKS_DIR),
+            "stats_site": config.STATS_SITE, "build": config.APP_BUILD}
 
 
 @app.put("/api/settings")

@@ -175,6 +175,8 @@
     "Trotzdem aktualisieren": "Vẫn cập nhật",
     "Es läuft noch: {}. Beim Aktualisieren wird das abgebrochen.": "Vẫn đang chạy: {}. Cập nhật sẽ hủy tác vụ này.",
     "Neue Version verfügbar: Build {}.": "Có phiên bản mới: Build {}.",
+    "Anonym mitzählen": "Đếm ẩn danh",
+    "Einmal am Tag meldet Voicitool nur „aktiv“ und die Build-Nummer, damit man sieht, wie viele es nutzen. Keine Namen, Dateien oder Kennungen.": "Mỗi ngày một lần, Voicitool chỉ gửi „đang hoạt động“ và số Build, để biết có bao nhiêu người dùng. Không có tên, tệp hay mã định danh.",
     "GitHub nicht erreichbar: {}": "Không kết nối được GitHub: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Gói lồng tiếng cho The Choicer Voicer. Phát triển bởi Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Phần mềm tự do theo giấy phép GNU General Public License v3.0 (GPL-3.0): bạn được phép dùng, sửa đổi và chia sẻ Voicitool; các phiên bản sửa đổi phải được phát hành lại theo GPL-3.0.",

@@ -175,6 +175,8 @@
     "Trotzdem aktualisieren": "Actualizează oricum",
     "Es läuft noch: {}. Beim Aktualisieren wird das abgebrochen.": "Încă rulează: {}. La actualizare, acesta va fi anulat.",
     "Neue Version verfügbar: Build {}.": "Versiune nouă disponibilă: Build {}.",
+    "Anonym mitzählen": "Numărare anonimă",
+    "Einmal am Tag meldet Voicitool nur „aktiv“ und die Build-Nummer, damit man sieht, wie viele es nutzen. Keine Namen, Dateien oder Kennungen.": "O dată pe zi, Voicitool trimite doar „activ“ și numărul de Build, ca să se vadă câți oameni îl folosesc. Fără nume, fișiere sau identificatori.",
     "GitHub nicht erreichbar: {}": "GitHub nu poate fi accesat: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Pachete de dublaj pentru The Choicer Voicer. Dezvoltat de Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Software liber sub licența GNU General Public License v3.0 (GPL-3.0): poți folosi, modifica și distribui mai departe Voicitool; versiunile modificate trebuie publicate tot sub GPL-3.0.",

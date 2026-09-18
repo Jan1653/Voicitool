@@ -1,5 +1,12 @@
 [
   {
+    "build": 14,
+    "date": "2026-09-19",
+    "changes": [
+      "Voicitool now reports once a day that it is in use (only \"active\" and the build number), so I can see roughly how many people use it. You can switch this off under Settings, Updates."
+    ]
+  },
+  {
     "build": 13,
     "date": "2026-09-19",
     "changes": [

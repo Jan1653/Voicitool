@@ -175,6 +175,8 @@
     "Trotzdem aktualisieren": "仍然更新",
     "Es läuft noch: {}. Beim Aktualisieren wird das abgebrochen.": "仍在进行：{}。更新将取消此操作。",
     "Neue Version verfügbar: Build {}.": "有新版本可用：构建 {}。",
+    "Anonym mitzählen": "匿名计数",
+    "Einmal am Tag meldet Voicitool nur „aktiv“ und die Build-Nummer, damit man sieht, wie viele es nutzen. Keine Namen, Dateien oder Kennungen.": "Voicitool 每天仅发送一次“活跃”状态和构建编号，以便了解有多少人在使用。不含姓名、文件或任何标识。",
     "GitHub nicht erreichbar: {}": "无法连接到 GitHub: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "The Choicer Voicer 的配音包制作工具,由 Jan1653 开发。",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "基于 GNU 通用公共许可证 v3.0(GPL-3.0)的自由软件:你可以使用、修改和分发 Voicitool;修改后的版本也必须以 GPL-3.0 许可证发布。",

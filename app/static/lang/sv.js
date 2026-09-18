@@ -175,6 +175,8 @@
     "Trotzdem aktualisieren": "Uppdatera ändå",
     "Es läuft noch: {}. Beim Aktualisieren wird das abgebrochen.": "Pågår fortfarande: {}. Uppdateringen avbryter det.",
     "Neue Version verfügbar: Build {}.": "Ny version tillgänglig: Build {}.",
+    "Anonym mitzählen": "Räkna anonymt",
+    "Einmal am Tag meldet Voicitool nur „aktiv“ und die Build-Nummer, damit man sieht, wie viele es nutzen. Keine Namen, Dateien oder Kennungen.": "En gång om dagen rapporterar Voicitool bara „aktiv“ och Build-numret, så att man ser hur många som använder det. Inga namn, filer eller ID:n.",
     "GitHub nicht erreichbar: {}": "GitHub kan inte nås: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Dubbningspaket för The Choicer Voicer. Skapat av Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Fri programvara under licensen GNU General Public License v3.0 (GPL-3.0): du får använda, ändra och dela Voicitool vidare; ändrade versioner måste släppas igen under GPL-3.0.",

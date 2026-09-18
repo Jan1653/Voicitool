@@ -175,6 +175,8 @@
     "Trotzdem aktualisieren": "อัปเดตต่อไป",
     "Es läuft noch: {}. Beim Aktualisieren wird das abgebrochen.": "ยังทำงานอยู่: {} การอัปเดตจะยกเลิกงานนี้",
     "Neue Version verfügbar: Build {}.": "มีเวอร์ชันใหม่: Build {}",
+    "Anonym mitzählen": "นับแบบไม่ระบุตัวตน",
+    "Einmal am Tag meldet Voicitool nur „aktiv“ und die Build-Nummer, damit man sieht, wie viele es nutzen. Keine Namen, Dateien oder Kennungen.": "Voicitool จะส่งเพียง „ใช้งานอยู่“ และหมายเลข Build วันละครั้ง เพื่อให้รู้ว่ามีคนใช้งานกี่คน ไม่มีชื่อ ไฟล์ หรือรหัสระบุตัวตน",
     "GitHub nicht erreichbar: {}": "เชื่อมต่อ GitHub ไม่ได้: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "แพ็กพากย์เสียงสำหรับ The Choicer Voicer พัฒนาโดย Jan1653",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "ซอฟต์แวร์เสรีภายใต้สัญญาอนุญาต GNU General Public License v3.0 (GPL-3.0) คุณสามารถใช้ แก้ไข และเผยแพร่ Voicitool ต่อได้ เวอร์ชันที่แก้ไขต้องเผยแพร่ภายใต้ GPL-3.0 เช่นกัน",

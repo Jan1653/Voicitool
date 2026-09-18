@@ -103,6 +103,10 @@ If you have the instrumental version of the song, you can load it under Export �
 - When two people talk at the same time, both end up in the same clip.
 - The game does not load clips longer than 60 seconds, so these get cut (you get a warning).
 
+## Usage count
+
+I'd like to know roughly how many people use Voicitool. So once a day, while the app is open, it tells [GoatCounter](https://www.goatcounter.com) "active" together with the build number. Nothing else is sent: no names, no files, no IDs. GoatCounter doesn't store IP addresses and doesn't use cookies. You can switch it off under Settings → Updates → **Count anonymously**.
+
 ## Made with AI
 
 I built this project with a lot of help from AI (Claude). If that bothers you, that's completely fine, you don't have to use it.

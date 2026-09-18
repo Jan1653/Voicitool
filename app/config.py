@@ -53,6 +53,8 @@ _VERSION = json.loads((APP_DIR / "version.json").read_text(encoding="utf8"))
 APP_VERSION = _VERSION["version"]
 APP_BUILD = int(_VERSION["build"])
 UPDATE_REPO = _VERSION.get("repo", "")
+# Anonyme Zählung aktiver Installationen (GoatCounter-Seitenname, leer = aus). Siehe app.js countActive()
+STATS_SITE = _VERSION.get("stats", "")
 # Credits im Pack: pro Projekt einstellbar, bei jedem neuen Projekt an
 #   text:       made_with | made_with_by | made_with_link (Link nur, wenn ein GitHub-Repo eingetragen ist)
 #   in_authors: als Eintrag in der Autorenliste · in_readme: Zeile in der Beschreibung
