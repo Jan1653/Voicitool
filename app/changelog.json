@@ -1,5 +1,12 @@
 [
   {
+    "build": 20,
+    "date": "2026-09-19",
+    "changes": [
+      "The new \"Provide text\" window is now translated into all app languages."
+    ]
+  },
+  {
     "build": 19,
     "date": "2026-09-19",
     "changes": [
