@@ -1,5 +1,12 @@
 [
   {
+    "build": 17,
+    "date": "2026-09-19",
+    "changes": [
+      "Better speaker detection in long videos with many characters: short snippets no longer pile up into extra \"characters\" that mix several voices. In a test episode with 10 characters, Voicitool now finds exactly 10 instead of 17."
+    ]
+  },
+  {
     "build": 16,
     "date": "2026-09-19",
     "changes": [

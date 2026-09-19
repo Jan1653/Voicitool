@@ -20,6 +20,10 @@ MIN_CLUSTER_DUR = 0.8  # kürzere Phrasen gründen keine eigene Figur, sie werde
 #                        Seit die Phrasen auch an Satzgrenzen geteilt werden, gibt es viele kurze Teile;
 #                        mit 0,8 s bleiben Nebenstimmen erkennbar, ohne dass Einwürfe Extra-Figuren erzeugen
 #                        (gemessen an 7 Referenz-Packs und 48 künstlichen Dialogen)
+MIN_CLUSTER_DUR_LONG = 1.2  # bei viel Sprache (ab LONG_SPEECH s) gründen erst Phrasen ab 1,2 s eine Figur: jede echte
+LONG_SPEECH = 200.0         # Figur hat dann genug lange Abschnitte, kurze bilden sonst Sammel-Figuren aus vielen Stimmen
+#                             (Among Us, 2 Folgen mit je ~450 s Sprache: 1:1 71,4 -> 73,2 %, 24 -> 9 überzählige
+#                             Figuren; kürzere Packs unverändert, Osama 94 -> 96 %)
 THRESHOLD = 0.78      # Cosinus-Distanz für automatisches Clustering
 FIXED_K_EXTRA = 2     # bei vorgegebener Sprecher-Anzahl: so viele Gruppen mehr bilden, dann kleinste einsortieren
 WIN, HOP = 1.5, 0.5   # Fenster für Sprecherwechsel in langen Phrasen
@@ -172,7 +176,8 @@ def cluster_phrases(E, durations, n_speakers=None, threshold=THRESHOLD):
         return np.zeros(0, dtype=int)
     X = _norm(E)
     durations = np.asarray(durations)
-    core = np.where(durations >= MIN_CLUSTER_DUR)[0]
+    min_dur = MIN_CLUSTER_DUR_LONG if durations.sum() > LONG_SPEECH else MIN_CLUSTER_DUR
+    core = np.where(durations >= min_dur)[0]
     if len(core) < 2:
         core = np.arange(n)
     labels = np.full(n, -1)
