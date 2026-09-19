@@ -1,5 +1,15 @@
 [
   {
+    "build": 22,
+    "date": "2026-09-19",
+    "changes": [
+      "Process online: PCs without a suitable graphics card can let free online services separate the voices (MVSEP) and recognize the text (Groq, Cloudflare or Gemini). Set it up under Settings → Process online, a step by step guide with links is included. Voicitool asks once at start, and a new \"Process online\" button sits next to \"Process\" in the inbox.",
+      "If you set up more than one service, pick the one for each video right next to the button. The list shows the model and which one is recommended.",
+      "When you download from YouTube, tick \"Also get subtitles\" and the uploader's subtitles are added to the video as provided text right away.",
+      "Subtitles now become one line per subtitle instead of breaking sentences where the subtitle wrapped."
+    ]
+  },
+  {
     "build": 21,
     "date": "2026-09-19",
     "changes": [

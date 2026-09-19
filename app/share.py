@@ -16,7 +16,10 @@ from pathlib import Path
 from app import config
 
 UPLOAD_URL = os.environ.get("VOICITOOL_SHARE_URL", "https://litterbox.catbox.moe/resources/internals/api.php")
-LINK_HOSTS = ("litter.catbox.moe", "litterbox.catbox.moe")   # nur solche Links öffnet die App im Browser
+LINK_HOSTS = ("litter.catbox.moe", "litterbox.catbox.moe",   # nur solche Links öffnet die App im Browser
+              # Anleitungen für Online rechnen
+              "mvsep.com", "console.groq.com", "groq.com", "dash.cloudflare.com", "developers.cloudflare.com",
+              "aistudio.google.com", "ai.google.dev", "policies.google.com")
 HOURS = 72
 MAX_BYTES = 1000 * 1000 * 1000
 LINKS_FILE = config.DATA_DIR / "links.json"

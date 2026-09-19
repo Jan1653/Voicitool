@@ -78,7 +78,7 @@ def main():
         emit(type="done", result=result)
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
-        emit(type="error", error=f"{type(e).__name__}: {e}")
+        emit(type="error", error=f"{type(e).__name__}: {e}", code=getattr(e, "code", None))
         sys.exit(1)
 
 

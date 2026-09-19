@@ -69,6 +69,7 @@
       <button data-sec="models"><span class="ico"><i data-ic="sparkles"></i></span><span>KI-Modelle</span></button>
       <button data-sec="storage"><span class="ico"><i data-ic="database"></i></span><span>Speicher</span></button>
       <button data-sec="system"><span class="ico"><i data-ic="monitor"></i></span><span>System</span></button>
+      <button data-sec="online"><span class="ico"><i data-ic="cloud"></i></span><span>Online rechnen</span></button>
       <button data-sec="updates"><span class="ico"><i data-ic="refresh"></i></span><span>Updates</span></button>
       <button data-sec="keys"><span class="ico"><i data-ic="keyboard"></i></span><span>Tastenkürzel</span></button>
       <button data-sec="about"><span class="ico"><i data-ic="info"></i></span><span>Über Voicitool</span></button>
@@ -253,6 +254,10 @@
           </div>
         </section>
 
+        <section data-sec="online" hidden>
+          <div id="onlineBox" class="online-box"><div class="set-note">Wird geladen …</div></div>
+        </section>
+
         <section data-sec="updates" hidden>
           <div class="set-row">
             <div><div class="set-label">Beim Start nach Updates suchen</div><div class="set-hint">Voicitool.exe lädt neue Versionen von GitHub und prüft danach die Installation.</div></div>
@@ -324,6 +329,7 @@
       <input id="urlInput" type="url" placeholder="… oder Link einfügen (YouTube &amp; andere Video-Seiten)" spellcheck="false">
       <button class="btn primary" id="btnUrl">Laden</button>
     </div>
+    <label class="check url-subs" title="Nur Untertitel, die der Uploader selbst erstellt hat. Sie landen als „Text vorgeben“ beim Video im Eingang."><input type="checkbox" id="urlSubs"> Untertitel mitholen (für genauere Texte)</label>
     <div class="muted small">Bitte nur Videos laden, die du auch verwenden darfst.</div>
     <div class="upload-state" id="uploadState"></div>
   </section>

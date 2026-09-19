@@ -43,21 +43,49 @@ TIME_LINE = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3}\s*-->")
 
 
 def subs_to_text(raw):
-    """SRT/VTT/ASS in Klartext: eine Zeile je Untertitel, ohne Zeiten, Nummern und Formatierung."""
-    out, last = [], None
+    """SRT/VTT/ASS in Klartext: eine Zeile je Einblendung, ohne Zeiten, Nummern und Formatierung.
+
+    Mehrere Zeilen einer Einblendung sind nur umbrochen und werden eine Zeile. Ausnahme: Dialog-Striche
+    („- Hi.“ / „- Hallo.“), das sind zwei Sprecher. YouTube wiederholt beim Weiterrollen die vorige Zeile, die fällt weg."""
+    out, cue, prev = [], [], set()
+
+    def flush():
+        nonlocal cue, prev
+        if not cue:
+            return
+        lines = [x for x in cue if x not in prev]   # rollende Untertitel: schon gezeigte Zeilen nicht noch einmal
+        prev = set(cue)
+        cue = []
+        if not lines:
+            return
+        if len(lines) > 1 and all(re.match(r"^[-–—]\s*\S", x) for x in lines):
+            parts = [re.sub(r"^[-–—]\s*", "", x) for x in lines]
+        else:
+            parts = [" ".join(re.sub(r"^[-–—]\s+", "", x) if len(lines) == 1 else x for x in lines)]
+        for x in parts:
+            if x and (not out or out[-1] != x):
+                out.append(x)
+
     for line in raw.replace("\r", "").split("\n"):
         s = line.strip()
-        if not s or s.isdigit() or TIME_LINE.search(s) or s.startswith(("WEBVTT", "NOTE", "Kind:", "Language:", "STYLE")):
+        if not s or TIME_LINE.search(s):
+            flush()
             continue
-        if s.startswith("Dialogue:"):          # ASS: Text steht nach dem 9. Komma
+        if s.isdigit() or s.startswith(("WEBVTT", "NOTE", "Kind:", "Language:", "STYLE")):
+            continue
+        if s.startswith("Dialogue:"):          # ASS: Text steht nach dem 9. Komma, jede Zeile eine Einblendung
             s = s.split(",", 9)[-1]
-        elif s.startswith(("[", "Format:", "Style:", "ScriptType", "PlayRes")):
+            s = html.unescape(re.sub(r"\{[^}]*\}", "", s).replace("\\N", " ").replace("\\n", " ")).strip()
+            flush()
+            cue = [s] if s else []
+            flush()
             continue
-        s = re.sub(r"\{[^}]*\}|<[^>]+>", "", s).replace("\\N", " ").replace("\\n", " ")
-        s = html.unescape(s).strip()
-        if s and s != last:                    # YouTube wiederholt Zeilen beim Weiterrollen
-            out.append(s)
-            last = s
+        if s.startswith(("[Script", "[V4", "[Events", "Format:", "Style:", "ScriptType", "PlayRes")):
+            continue
+        s = html.unescape(re.sub(r"\{[^}]*\}|<[^>]+>", "", s)).strip()
+        if s:
+            cue.append(s)
+    flush()
     return "\n".join(out)
 
 
@@ -96,6 +124,56 @@ def remember_source(filename, url, title):
         data = {}
     data[filename] = {"url": url, "title": title}
     SOURCES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf8")
+
+
+def remember_reftext(filename, text, source):
+    """Beim Herunterladen mitgeholte Untertitel an die Datei im Eingang hängen (landen als „Text vorgeben“ im Formular)."""
+    try:
+        data = json.loads(SOURCES_FILE.read_text(encoding="utf8")) if SOURCES_FILE.exists() else {}
+    except Exception:
+        data = {}
+    data.setdefault(filename, {})["reftext"] = {"text": text, "source": source}
+    SOURCES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf8")
+
+
+def files_with_reftext(files):
+    """Welche dieser Dateien im Eingang haben mitgeholte Untertitel?"""
+    try:
+        data = json.loads(SOURCES_FILE.read_text(encoding="utf8")) if SOURCES_FILE.exists() else {}
+    except Exception:
+        return []
+    return [f for f in files if (data.get(f) or {}).get("reftext")]
+
+
+def uploader_subs(url):
+    """Beste Untertitel vom Uploader (keine automatisch erzeugten: die sind oft schlechter als unsere eigene Erkennung
+    und würden richtige Wörter überschreiben). Sprache: die Originalsprache des Videos, sonst die einzige Spur.
+    -> {"text", "source", "lang"} oder None"""
+    import yt_dlp
+    from app.pipeline import download
+    opts = download.ytdlp_base_options()
+    opts.update({"skip_download": True, "quiet": True})
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    subs = {k: v for k, v in (info.get("subtitles") or {}).items() if k != "live_chat"}
+    if not subs:
+        return None
+    orig = (info.get("language") or "").split("-")[0].lower()
+    if not orig:   # YouTube kennzeichnet die Originalsprache bei den automatischen Untertiteln mit „-orig“
+        orig = next((k[:-5].split("-")[0] for k in (info.get("automatic_captions") or {}) if k.endswith("-orig")), "")
+    langs = sorted(subs, key=lambda k: (k.split("-")[0].lower() != orig, k))
+    for lang in langs:
+        fmts = subs[lang]
+        f = next((x for x in fmts if x.get("ext") == "vtt"), None) or next((x for x in fmts if x.get("ext") in ("srv1", "ttml")), None)
+        if not f:
+            continue
+        try:
+            text = subs_to_text(_get(f["url"]))
+        except Exception:
+            continue
+        if text:
+            return {"text": text, "source": f"YouTube-Untertitel ({lang})", "lang": lang}
+    return None
 
 
 def source_info(filename):

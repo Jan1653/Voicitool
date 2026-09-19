@@ -4,7 +4,7 @@ Voicitool turns a video into a dub pack for **The Choicer Voicer**.
 
 You drop in a clip or paste a YouTube link. Voicitool separates the voices from the music, writes down what is said, works out who says what and cuts every line into its own clip. Then you go through it in the editor, fix what it got wrong and export the pack, or put it straight into the game.
 
-It all runs on your own PC. Your videos are not uploaded anywhere. The only upload is the optional share link, and that only happens when you click it.
+It all runs on your own PC. Your videos are not uploaded anywhere, unless you choose **Process online** for a video or create a share link.
 
 ## Download and install
 
@@ -30,7 +30,7 @@ After that, the same exe simply starts Voicitool. When a newer version is out he
 |---|---|
 | NVIDIA GTX 16xx or RTX, driver 570 or newer | Everything runs on the graphics card (CUDA 12.8) |
 | Older NVIDIA (GTX 9xx/10xx), driver 560 or newer | Graphics card with CUDA 12.6 |
-| AMD, Intel, very old NVIDIA or no graphics card | Runs on the processor. It works, but it takes much longer. Use the quality "Fast". |
+| AMD, Intel, very old NVIDIA or no graphics card | Runs on the processor. It works, but it takes much longer. Use the quality "Fast" or [process online](#process-online). |
 
 ## How to use it
 
@@ -53,7 +53,22 @@ For songs and episodes it helps a lot to give Voicitool the actual words. Before
 - lyrics from [LRCLIB](https://lrclib.net) and lyrics.ovh
 - episode transcripts from the Fandom wikis (SpongeBob, The Simpsons and many more)
 
-You can also paste any text yourself. The text lands in a field first, so you can shorten it (for example verses that are not in the clip). Voicitool then takes the spelling from your text, fills in words it missed and starts a new line for every line of the lyrics. The timing still comes from the video. On our test videos this roughly halved the word errors when the right text was found.
+When you paste a YouTube link, tick **Also get subtitles** and the uploader's own subtitles are added to the video right away. You can also paste any text yourself. The text lands in a field first, so you can shorten it (for example verses that are not in the clip). Voicitool then takes the spelling from your text, fills in words it missed and starts a new line for every line of the lyrics. The timing still comes from the video. On our test videos this roughly halved the word errors when the right text was found.
+
+### Process online
+
+Without a suitable graphics card, separating the voices and recognizing the text take a long time. Voicitool can hand these two steps to free online services:
+
+| Step | Service | Free |
+|---|---|---|
+| Separate the voices | [MVSEP](https://mvsep.com) | 50 videos a day, up to 10 minutes each |
+| Recognize the text | [Groq](https://console.groq.com) (recommended) | 8 hours of audio a day |
+| | [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) | about 3.5 hours of audio a day |
+| | [Gemini](https://aistudio.google.com) (optional) | limit not published |
+
+You need your own free accounts. Settings → Process online explains step by step where to get the keys, and Voicitool asks once at the first start whether you want to set it up. Then click **Process online** on a video in the inbox. If you set up more than one service, you can pick one for each video, and the list shows the model and which one is recommended. Only the audio is uploaded, and only for videos where you click that button. The keys stay on your PC. Speakers, laughs and everything else still run locally.
+
+On the free Gemini tier, Google may use uploaded audio to improve its products and people may listen to it. According to Google's terms this does not apply in the EU, the UK and Switzerland. Voicitool shows this warning before Gemini can be used.
 
 ### Quality levels
 

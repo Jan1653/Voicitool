@@ -129,6 +129,8 @@ def list_projects():
             "characters": len(p.get("characters", [])), "language": p.get("language"),
             "quality": (p.get("settings") or {}).get("quality"),
             "device": (p.get("settings") or {}).get("device"),
+            "online": bool((p.get("settings") or {}).get("online")),
+            "online_asr": (p.get("settings") or {}).get("online_asr"),
             "error_code": p.get("error_code"), "error_detail": p.get("error_detail"),
             "category": p.get("category"),
         })
@@ -350,20 +352,40 @@ def process(pid, report):
         data["preview"] = "vorschau.mp4"
     save(pid, data)
 
+    # Online rechnen: Trennung und/oder Spracherkennung bei Gratis-Diensten (je nachdem, was eingerichtet ist)
+    online_ready = None
+    if data["settings"].get("online"):
+        from app.pipeline import online
+        online_ready = online.ready(asr=data["settings"].get("online_asr"))
+        if not online_ready["separate"] and not online_ready["transcribe"]:
+            raise online.OnlineError("Online rechnen ist nicht eingerichtet. Richte es unter Einstellungen → Online rechnen "
+                                     "ein oder rechne auf diesem PC.", "online_setup")
+        data["online"] = {"separate": "mvsep" if online_ready["separate"] else None, "transcribe": online_ready["transcribe"]}
+        save(pid, data)
+
     # 2) Stimmen trennen
-    report("Stimmen trennen", 0, "Modell laden (beim ersten Mal Download ~600 MB)")
-    transcribe.unload()
-    separate.separate(d / "audio.wav", d, lambda p: report("Stimmen trennen", p, "Stimmen vom Hintergrund trennen"),
-                      overlap=config.quality(quality)["overlap"])
+    if online_ready and online_ready["separate"]:
+        report("Stimmen trennen", 0, "Tonspur wird zu MVSEP hochgeladen")
+        online.separate(d / "audio.wav", d, lambda p, msg: report("Stimmen trennen", p, msg))
+    else:
+        report("Stimmen trennen", 0, "Modell laden (beim ersten Mal Download ~600 MB)")
+        transcribe.unload()
+        separate.separate(d / "audio.wav", d, lambda p: report("Stimmen trennen", p, "Stimmen vom Hintergrund trennen"),
+                          overlap=config.quality(quality)["overlap"])
     media.encode_opus(d / "stimmen.wav", d / "stimmen.ogg")
     media.encode_opus(d / "hintergrund.wav", d / "hintergrund.ogg")
 
     # 3) Sprache erkennen
-    report("Sprache erkennen", 0, "Whisper laden (beim ersten Mal Download bis 3 GB)")
     voc16 = media.load_mono(d / "stimmen.wav")
     lang = data["settings"].get("language") or "auto"
-    asr = transcribe.transcribe(voc16, None if lang == "auto" else lang,
-                                lambda p: report("Sprache erkennen", p, "Text erkennen"), quality=quality)
+    if online_ready and online_ready["transcribe"]:
+        report("Sprache erkennen", 0, "Tonspur wird hochgeladen")
+        asr = online.transcribe(voc16, None if lang == "auto" else lang, lambda p, msg: report("Sprache erkennen", p, msg),
+                                vad_threshold=config.quality(quality)["vad_threshold"], service=online_ready["transcribe"])
+    else:
+        report("Sprache erkennen", 0, "Whisper laden (beim ersten Mal Download bis 3 GB)")
+        asr = transcribe.transcribe(voc16, None if lang == "auto" else lang,
+                                    lambda p: report("Sprache erkennen", p, "Text erkennen"), quality=quality)
     data["language"] = asr["language"]
     data["language_probability"] = asr.get("language_probability")   # unsicher? -> Hinweis im Editor
     words = asr["words"]

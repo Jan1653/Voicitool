@@ -191,6 +191,40 @@ textarea { resize: vertical; }
 .drop-title { font-size: 17px; font-weight: 600; }
 .url-row { display: flex; gap: 8px; width: min(560px, 100%); margin-top: 4px; }
 .url-row input { flex: 1; }
+.url-subs { font-size: 12.5px; color: var(--muted); }
+
+/* Online rechnen */
+.online-box { display: flex; flex-direction: column; gap: 14px; }
+.online-intro p { margin: 0 0 8px; }
+.online-pc { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: var(--panel2); }
+.online-pc svg { flex: none; width: 18px; height: 18px; margin-top: 1px; }
+.online-intro.weak .online-pc { border: 1px solid var(--warn, #e0a030); }
+.online-how { margin: 6px 0 0; padding-left: 20px; color: var(--muted); }
+.online-card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.online-card.risky { border-color: var(--danger, #e5484d); }
+.oc-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.oc-head b { font-size: 15px; }
+.oc-role { color: var(--muted); }
+.oc-head .pill { margin-left: auto; }
+.pill.ok { background: color-mix(in srgb, var(--ok, #3fb950) 22%, transparent); }
+.pill.bad { background: color-mix(in srgb, var(--danger, #e5484d) 25%, transparent); }
+.oc-desc { margin: 0; }
+.oc-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.oc-link { white-space: nowrap; }
+.oc-warn { display: flex; gap: 10px; padding: 12px; border-radius: 8px; background: color-mix(in srgb, var(--danger, #e5484d) 16%, transparent);
+  border: 1px solid var(--danger, #e5484d); }
+.oc-warn svg { flex: none; width: 26px; height: 26px; color: var(--danger, #e5484d); }
+.oc-warn b { display: block; font-size: 15px; margin-bottom: 4px; }
+.oc-warn p { margin: 0 0 4px; }
+.oc-fields { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.oc-fields label { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 180px; font-size: 12.5px; color: var(--muted); }
+.oc-result:empty { display: none; }
+.oc-result.ok { color: var(--ok, #3fb950); }
+.oc-result.bad { color: var(--danger, #e5484d); }
+.online-note { margin: 0; }
+#onlineAsr { min-width: 260px; max-width: 340px; }
+.online-pick select { max-width: 260px; }
+.dlg .online-ask p { margin: 0 0 8px; }
 .card h2 { margin: 0 0 6px; font-size: 16px; }
 .card p { margin: 0 0 10px; }
 .drop { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 30px; border-style: dashed; text-align: center;

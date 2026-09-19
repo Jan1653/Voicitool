@@ -217,6 +217,14 @@ def _process_estimate(pid, dev=None):
     s = data.get("settings") or {}
     est = estimate.estimate(seconds, s.get("quality") or config.DEFAULT_QUALITY, s.get("laugh", True),
                             {"cpu": "cpu", "gpu": "cuda"}.get(dev))
+    if s.get("online"):   # Online rechnen: Hochladen, Warteschlange und Rechenzeit beim Dienst (grob)
+        from app.pipeline import online
+        rd = online.ready(asr=s.get("online_asr"))
+        est["steps"] = [[n, 60 + 0.3 * seconds if n == "Stimmen trennen" and rd["separate"] else
+                         15 + 0.05 * seconds if n == "Sprache erkennen" and rd["transcribe"] else t]
+                        for n, t in est["steps"]]
+        est["total"] = round(sum(t for _, t in est["steps"]), 1)
+        est["online"] = True
     est["seconds"] = seconds
     return est
 
@@ -231,6 +239,8 @@ def _record_times(job):
         for (step, start), end in zip(steps, ends):
             times[step] = times.get(step, 0.0) + (end - start)
         est = job.get("estimate") or {}
+        if est.get("online"):
+            return   # Online-Zeiten sagen nichts über diesen PC
         data = project.load(job["project"])
         s = data.get("settings") or {}
         estimate.record(est.get("seconds") or data.get("duration") or 0, s.get("quality") or config.DEFAULT_QUALITY,
@@ -363,7 +373,7 @@ def run_worker(kind, pid):
         job["_proc"] = proc
         if job["_cancel"]:
             _kill_tree(proc)
-        error, result = None, {"ok": True}
+        error, error_code, result = None, None, {"ok": True}
         job["_alive"] = time.time()
         for raw in proc.stdout:
             line = raw.decode("utf8", "replace").rstrip("\r\n")
@@ -378,6 +388,7 @@ def run_worker(kind, pid):
                 report(msg["step"], msg["pct"], msg.get("message", ""))
             elif msg["type"] == "error":
                 error = msg["error"]
+                error_code = msg.get("code")
             elif msg["type"] == "done" and msg.get("result") is not None:
                 result = msg["result"]
         proc.wait()
@@ -386,6 +397,8 @@ def run_worker(kind, pid):
             raise Cancelled()
         if proc.returncode != 0:
             detail = error or "\n".join(tail[-12:]).strip() or f"Code {proc.returncode}"
+            if detail.startswith("OnlineError: "):   # Meldungen von Online rechnen sind schon verständlich
+                raise WorkerError(detail.split(": ", 1)[1], error_code or "online", detail)
             code, text = system.friendly_error(detail + "\n" + "\n".join(tail[-30:]), proc.returncode)
             if text:
                 raise WorkerError(text, code, detail)
@@ -429,7 +442,9 @@ def state():
     inbox = sorted(p.name for p in config.INBOX_DIR.iterdir()
                    if p.is_file() and p.suffix.lower() in config.VIDEO_EXTS)
     from app import models
+    from app.pipeline import textsources
     return {"version": config.APP_VERSION, "build": config.APP_BUILD, "repo": config.UPDATE_REPO,
+            "inbox_subs": textsources.files_with_reftext(inbox),
             "whisper_installed": models.whisper_installed(), "settings": models.settings(),
             "projects": project.list_projects(), "categories": project.categories(), "order": project.project_order(), "inbox": inbox, "jobs": jobs.state(),
             "quality": {k: v["label"] for k, v in config.QUALITY.items()}, "default_quality": config.DEFAULT_QUALITY,
@@ -463,10 +478,36 @@ def download_video(body: dict = Body(...)):
     if not dl.valid_url(url):
         raise HTTPException(400, "Bitte eine Adresse einfügen, die mit http:// oder https:// beginnt.")
 
+    want_subs = bool(body.get("subs"))
+
     def run(job, report):
-        return dl.download(url, lambda p, msg="": report("Video laden", p, msg))
+        result = dl.download(url, lambda p, msg="": report("Video laden", p, msg))
+        if want_subs:   # Haken „Untertitel mitholen“: gleich als „Text vorgeben“ an das Video hängen
+            from app.pipeline import textsources
+            report("Video laden", 1.0, "Untertitel holen")
+            try:
+                subs = textsources.uploader_subs(url)
+            except Exception:
+                traceback.print_exc()
+                subs = None
+            if subs:
+                textsources.remember_reftext(result["filename"], subs["text"], subs["source"])
+                result["subs"] = {"source": subs["source"], "lines": len([x for x in subs["text"].splitlines() if x.strip()])}
+            else:
+                result["subs"] = None
+        return result
 
     return {"job": jobs.submit("download", "", run, "Video laden", lane="net")}
+
+
+@app.get("/api/textsources/inbox")
+def textsources_inbox(file: str):
+    """Beim Herunterladen mitgeholte Untertitel einer Datei im Eingang."""
+    from app.pipeline import textsources
+    ref = (textsources.source_info(file) or {}).get("reftext")
+    if not ref:
+        raise HTTPException(404, "Keine Untertitel gespeichert")
+    return ref
 
 
 @app.delete("/api/inbox/{filename}")
@@ -613,6 +654,45 @@ SETTING_KEYS = {
     # KI und Updates
     "whisper_model", "check_updates", "ui_lang", "usage_stats",
 }
+
+
+def _online_times():
+    """Geschätzte Dauer für einen 3-Minuten-Clip: auf diesem PC und mit Online rechnen (für die Einrichtung)."""
+    from app import estimate, system
+    dev = system.device()
+    est = estimate.estimate(180, config.DEFAULT_QUALITY, True, {"cpu": "cpu", "gpu": "cuda"}.get(dev))
+    local = sum(t for _, t in est["steps"])
+    online = sum(114 if n == "Stimmen trennen" else 24 if n == "Sprache erkennen" else t for n, t in est["steps"])
+    return {"device": dev, "weak": dev == "cpu", "local_3min": round(local), "online_3min": round(online)}
+
+
+@app.get("/api/online")
+def online_status():
+    """Online rechnen: was eingerichtet ist (Schlüssel nur gekürzt) und wie schnell dieser PC ist."""
+    from app.pipeline import online
+    out = online.status()
+    try:
+        out.update(_online_times())
+    except Exception:
+        traceback.print_exc()
+    return out
+
+
+@app.put("/api/online")
+def online_save(body: dict = Body(...)):
+    from app.pipeline import online
+    online.save(body)
+    return online_status()
+
+
+@app.post("/api/online/check")
+def online_check(body: dict = Body(...)):
+    """Schlüssel eines Dienstes prüfen (kleine Anfrage, verbraucht kein Kontingent)."""
+    from app.pipeline import online
+    service = body.get("service")
+    if service not in online.FIELDS:
+        raise HTTPException(400, "Unbekannter Dienst")
+    return online.check(service)
 
 
 @app.get("/api/settings")
@@ -772,8 +852,10 @@ def update_apply(body: dict = Body(default={})):
 @app.post("/api/projects")
 def create_project(body: dict = Body(...)):
     from app import models
+    from app.pipeline import online
     try:   # fehlt das Sprachpaket, gleich hier melden statt erst nach der Stimmen-Trennung
-        models.pick_whisper(body.get("quality"), body.get("language", "auto"))
+        if not (body.get("online") and online.ready(asr=body.get("online_asr"))["transcribe"]):   # online erkannt: kein Sprachpaket nötig
+            models.pick_whisper(body.get("quality"), body.get("language", "auto"))
     except models.MissingLanguagePack as e:
         raise HTTPException(400, str(e))
     try:
@@ -785,6 +867,10 @@ def create_project(body: dict = Body(...)):
         raise HTTPException(404, "Datei nicht im Eingang gefunden")
     if body.get("device") == "cpu":
         project.set_settings(pid, device="cpu")
+    if body.get("online"):
+        project.set_settings(pid, online=True)
+        if body.get("online_asr") in online.ASR + ("local",):
+            project.set_settings(pid, online_asr=body["online_asr"])
     jobs.submit("process", pid, run_worker("process", pid), f"Verarbeiten: {_name(pid)}")
     return {"id": pid}
 
@@ -798,6 +884,11 @@ def reprocess(pid: str, body: dict = Body(default={})):
     project.set_settings(pid, quality=q if q in config.QUALITY else None)
     if body.get("device") in ("cpu", "auto"):
         project.set_settings(pid, device=body["device"])
+    if "online" in body:
+        project.set_settings(pid, online=bool(body["online"]))
+    from app.pipeline import online
+    if body.get("online_asr") in online.ASR + ("local",):
+        project.set_settings(pid, online_asr=body["online_asr"])
     lang = str(body.get("language") or "")
     if lang in ("auto", "mixed") or (2 <= len(lang) <= 3 and lang.isalpha()):
         project.set_settings(pid, language=lang)   # z. B. nach unsicher erkannter Sprache

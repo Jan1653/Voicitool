@@ -596,7 +596,7 @@ let inboxSig = '', projectSig = '';
 function renderInbox(st) {
   const inbox = $('#inboxList');
   if (uploadNote.file && !st.inbox.includes(uploadNote.file)) clearUploadState();   // Video weg: Meldung auch
-  const sig = JSON.stringify(st.inbox) + (lastState?.default_quality || '') + JSON.stringify(st.whisper_installed) + JSON.stringify(st.categories || []);
+  const sig = JSON.stringify(st.inbox) + JSON.stringify(st.inbox_subs || []) + JSON.stringify(onlineState?.ready || {}) + Object.values(onlineState?.services || {}).map(x => +x.set).join('') + (onlineState?.weak ? 'w' : '') + (lastState?.default_quality || '') + JSON.stringify(st.whisper_installed) + JSON.stringify(st.categories || []);
   if (sig === inboxSig) return;
   inboxSig = sig;
   st.inbox.forEach(f => {
@@ -605,6 +605,13 @@ function renderInbox(st) {
     inboxForm[f] ??= { name: stripExt(f), language: setting('default_language') || (hasMultilingual() ? 'auto' : 'en'),
                        speakers: '', quality: setting('default_quality') || st.default_quality || 'standard',
                        laugh: !!setting('default_laugh') };
+    // beim Herunterladen mitgeholte Untertitel einmalig als „Text vorgeben“ übernehmen (entfernen bleibt entfernt)
+    if ((st.inbox_subs || []).includes(f) && !inboxForm[f].subsChecked) {
+      inboxForm[f].subsChecked = true;
+      api('GET', `/api/textsources/inbox?file=${encodeURIComponent(f)}`).then(ref => {
+        if (inboxForm[f] && !inboxForm[f].reftext) { inboxForm[f].reftext = ref; inboxSig = ''; refreshState(); }
+      }).catch(() => {});
+    }
   });
   inbox.innerHTML = st.inbox.length ? st.inbox.map(f => {
     const v = inboxForm[f];
@@ -618,7 +625,16 @@ function renderInbox(st) {
         <label>Qualität <select class="f-quality">${qualityOptions(v.quality)}</select></label>
         ${(st.categories || []).length ? `<label>Kategorie <select class="f-category"><option value="">${esc(tf('Keine'))}</option>${st.categories.map(c => `<option data-nolang value="${esc(c.id)}" ${c.id === v.category ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
         <label class="check-inline" title="Lacher als eigene Zeilen „(lacht)“ anlegen"><span>Lachen</span><span class="check"><input type="checkbox" class="f-laugh" ${v.laugh ? 'checked' : ''}> erkennen</span></label>
-        <button class="btn primary go">Verarbeiten</button>
+        <button class="btn ${onlineReady() && onlineState?.weak ? '' : 'primary'} go">Verarbeiten</button>
+        ${onlineReady() ? (() => {
+          const opts = asrChoices(), cur = opts.some(o => o.value === v.online_asr) ? v.online_asr : defaultAsr();
+          const note = opts.find(o => o.value === cur)?.note || '';
+          return `<label class="online-pick" title="${esc(note)}">${esc(tf('Online-Dienst'))}
+            <select class="f-online_asr">${opts.map(o => `<option value="${o.value}" ${o.value === cur ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select></label>`;
+        })() : ''}
+        <button class="btn ${onlineReady() && onlineState?.weak ? 'primary' : ''} go-online" title="${esc(onlineReady()
+          ? tf('Online rechnen: {}. Die Tonspur wird dafür hochgeladen.', onlineSummary(v.online_asr))
+          : tf('Online rechnen einrichten: Kostenlose Dienste übernehmen Stimmen trennen und Text erkennen.'))}">${ic('cloud')}<span>${esc(tf('Online rechnen'))}</span></button>
       </div>
       <div class="muted small qhint">${esc(qualityHint(v.quality))}</div>
       <div class="reftext-row${v.reftext ? ' on' : ''}">
@@ -843,6 +859,11 @@ inboxEl.addEventListener('input', e => {
   if (!key) return;
   inboxForm[it.dataset.file][key] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
   if (key === 'quality' || key === 'laugh') updateInboxEstimate(it);
+  if (key === 'online_asr') {
+    const o = asrChoices().find(x => x.value === e.target.value);
+    e.target.closest('.online-pick').title = o?.note || '';
+    $('.go-online', it).title = tf('Online rechnen: {}. Die Tonspur wird dafür hochgeladen.', onlineSummary(e.target.value));
+  }
   if (key === 'language') {
     const hint = languageHint(e.target.value);
     $('.lang-hint', it).hidden = !hint;
@@ -864,6 +885,21 @@ inboxEl.addEventListener('click', async e => {
                        tone: 'danger', ok: 'In den Papierkorb' })) return;
     try { await api('DELETE', `/api/inbox/${encodeURIComponent(file)}`); delete inboxForm[file]; toast('In den Papierkorb verschoben.'); }
     catch (err) { toast(err.message, true); }
+    inboxSig = ''; refreshState();
+  } else if (e.target.closest('.go-online')) {
+    if (!onlineReady()) {
+      toast(tf('Richte zuerst Online rechnen ein. Das dauert etwa 5 Minuten.'), false, 5000);
+      openSettings('online');
+      return;
+    }
+    const b = e.target.closest('.go-online'); b.disabled = true;
+    const v = inboxForm[file];
+    try {
+      const asr = asrChoices().some(o => o.value === v.online_asr) ? v.online_asr : defaultAsr();
+      await api('POST', '/api/projects', { filename: file, name: v.name.trim() || stripExt(file), language: v.language, speakers: v.speakers, quality: v.quality, laugh: v.laugh, ui_lang: window.VT_I18N?.lang, category: v.category || null, reftext: v.reftext || null, online: true, online_asr: asr });
+      delete inboxForm[file];
+      toast(tf('Online rechnen gestartet: {}.', onlineSummary(asr)));
+    } catch (err) { toast(err.message, true); b.disabled = false; }
     inboxSig = ''; refreshState();
   } else if (e.target.closest('.go')) {
     const b = e.target.closest('.go'); b.disabled = true;
@@ -965,7 +1001,7 @@ function projectItem(p, j) {
       <button class="link-btn cat-move" title="${esc(tf('In Kategorie verschieben'))}">${ic('folder-move')}</button></div>
     <span class="status ${esc(j ? 'verarbeitet' : p.status)}${elsewhere ? ' elsewhere' : ''}"${elsewhere ? ` title="${esc(tf('Fortschritt siehst du in dem Fenster, das es verarbeitet. Hängt es, hilft Neu starten.'))}"` : ''}>${esc(statusText)}</span>
     ${processing ? `<div class="bar"><div style="width:0%"></div></div><span class="eta muted small"></span>` : ''}
-    <span class="meta">${p.duration ? fmt(p.duration, false) : ''} ${p.lines ? `· ${p.lines} Zeilen · ${p.characters} Charaktere` : ''} ${p.language ? '· ' + p.language.toUpperCase() : ''} ${p.quality ? '· ' + esc(tf(lastState?.quality?.[p.quality] || p.quality)) : ''}</span>
+    <span class="meta">${p.duration ? fmt(p.duration, false) : ''} ${p.lines ? `· ${p.lines} Zeilen · ${p.characters} Charaktere` : ''} ${p.language ? '· ' + p.language.toUpperCase() : ''} ${p.quality ? '· ' + esc(tf(lastState?.quality?.[p.quality] || p.quality)) : ''}${p.online ? ' · ' + esc(tf('Online')) : ''}</span>
     ${j ? `<button class="btn small danger cancel" data-job="${esc(j.id)}" data-label="${esc(j.label)}">Abbrechen</button>` : ''}
     ${!j && p.status === 'fertig' ? '<button class="btn primary small open">Öffnen</button>' : ''}
     ${canRetry ? `<select class="retry-q" title="Qualität">${qualityOptions(q)}</select><button class="btn small retry">Neu starten</button>` : ''}
@@ -973,6 +1009,9 @@ function projectItem(p, j) {
     ${p.status === 'fehler' && p.error && !j ? `<div class="err"><span>${esc(p.error)}</span>
       ${['vram', 'gpu', 'crash', 'ram'].includes(p.error_code) && p.device !== 'cpu' ? '<button class="btn small retry-cpu">Auf dem Prozessor neu starten</button>' : ''}
       ${p.error_code === 'disk' ? '<button class="btn small goto-storage">Speicher freigeben</button>' : ''}
+      ${p.online && ['online_key', 'online_setup'].includes(p.error_code) ? `<button class="btn small goto-online">${esc(tf('Online rechnen einrichten'))}</button>` : ''}
+      ${p.online && String(p.error_code || '').startsWith('online') || p.online && p.error_code === 'net' ? `<button class="btn small retry-local">${esc(tf('Auf diesem PC rechnen'))}</button>` : ''}
+      ${!p.online && onlineReady() ? `<button class="btn small retry-online">${ic('cloud')}<span>${esc(tf('Online neu starten'))}</span></button>` : ''}
       <button class="copy-btn copy-err" title="Fehlermeldung kopieren">Kopieren</button></div>` : ''}
   </div>`;
 }
@@ -1258,6 +1297,15 @@ projectEl.addEventListener('click', async e => {
     return;
   }
   if (e.target.closest('.goto-storage')) { openSettings('storage'); return; }
+  if (e.target.closest('.goto-online')) { openSettings('online'); return; }
+  if (e.target.closest('.retry-local') || e.target.closest('.retry-online')) {
+    const on = !!e.target.closest('.retry-online');
+    try {
+      await api('POST', `/api/projects/${encodeURIComponent(id)}/reprocess`, { online: on, quality: retryQuality[id] || $('.retry-q', it)?.value });
+      toast(on ? tf('Online rechnen gestartet: {}.', onlineSummary()) : 'Verarbeitung neu gestartet.'); projectSig = ''; refreshState();
+    } catch (err) { toast(err.message, true); }
+    return;
+  }
   if (e.target.closest('.cat-move')) { categoryMenu(id, e.target.closest('.cat-move')); return; }
   try {
     if (e.target.closest('.open')) openProject(id, e.target.closest('.open'));
@@ -1320,6 +1368,7 @@ async function saveSetting(key, value) {
 loadSettings().then(() => {
   afterUpdateNote();
   countActive();
+  setTimeout(maybeAskOnline, 2500);
   if (setting('check_updates')) checkUpdate(false);
 });
 setInterval(() => { if (setting('check_updates')) checkUpdate(false); }, 6 * 3600e3);   // lange offene Fenster
@@ -1365,6 +1414,7 @@ function showSection(sec, first = false) {
   if (sec === 'models') renderModels();
   if (sec === 'storage') renderStorage();
   if (sec === 'system') renderSystem();
+  if (sec === 'online') renderOnline();
   if (sec === 'look') renderLook();
 }
 $('#btnSettings').onclick = () => openSettings();
@@ -1868,6 +1918,197 @@ function clearUploadState() {
   setTimeout(() => { if (el.classList.contains('fading')) { el.textContent = ''; el.classList.remove('fading'); } }, 320);
 }
 
+
+/* ------------------------------------------------------------ Online rechnen
+   Kostenlose Dienste übernehmen Stimmen trennen (MVSEP) und Text erkennen (Groq, Cloudflare oder Gemini).
+   Schlüssel bleiben auf dem PC, die Oberfläche sieht nur ihr Ende. */
+let onlineState = null;
+async function loadOnline() {
+  try { onlineState = await api('GET', '/api/online'); } catch { onlineState = null; }
+  return onlineState;
+}
+const onlineReady = () => !!(onlineState?.ready && (onlineState.ready.separate || onlineState.ready.transcribe));
+const ONLINE_NAMES = { mvsep: 'MVSEP', groq: 'Groq', cloudflare: 'Cloudflare', gemini: 'Gemini' };
+/* Dienste zum Text erkennen, beste zuerst: Groq (genaueste Erkennung, größtes Gratis-Kontingent), Cloudflare, Gemini */
+const ONLINE_MODELS = {
+  groq: { model: 'Whisper large-v3', note: 'Genaueste Erkennung, 8 Stunden Ton am Tag.' },
+  cloudflare: { model: 'Whisper large-v3-turbo', note: 'Etwas ungenauer, 3,5 Stunden Ton am Tag.' },
+  gemini: { model: 'Gemini 3.5 Transcribe', note: 'Hört auch, wer spricht. Google darf die Tonspur auswerten.' },
+};
+function asrChoices(withLocal = true) {
+  const st = onlineState;
+  const set = ['groq', 'cloudflare', 'gemini'].filter(s => st?.services?.[s]?.set);
+  const out = set.map((s, i) => ({ value: s, label: `${ONLINE_NAMES[s]} · ${ONLINE_MODELS[s].model}${i === 0 ? ' · ' + tf('empfohlen') : ''}`,
+                                   note: tf(ONLINE_MODELS[s].note) }));
+  if (withLocal && st?.ready?.separate) {
+    out.push({ value: 'local', label: tf('Text auf diesem PC erkennen'), note: tf('Nur die Stimmen werden online getrennt, den Text erkennt dein PC.') });
+  }
+  return out;
+}
+const defaultAsr = () => onlineState?.ready?.transcribe || (onlineState?.ready?.separate ? 'local' : '');
+function onlineSummary(asr) {
+  const r = onlineState?.ready || {}, parts = [];
+  const tr = asr === 'local' ? null : (asr && onlineState?.services?.[asr]?.set ? asr : r.transcribe);
+  if (r.separate) parts.push(tf('Stimmen trennen bei {}', 'MVSEP'));
+  if (tr) parts.push(tf('Text erkennen bei {}', ONLINE_NAMES[tr]));
+  return parts.join(', ');
+}
+const ONLINE_INFO = {
+  mvsep: {
+    role: 'Stimmen trennen',
+    desc: 'Trennt Stimmen und Hintergrund mit demselben KI-Modell wie Voicitool (BS-RoFormer). Kostenlos: 50 Videos am Tag, bis 10 Minuten je Stück. Längere Videos zählen doppelt.',
+    steps: [['Auf mvsep.com ein kostenloses Konto anlegen und die E-Mail bestätigen.', 'https://mvsep.com/register'],
+            ['Eingeloggt die API-Seite öffnen. Dort steht dein API-Token.', 'https://mvsep.com/en/full_api'],
+            ['Den Token hier einfügen und auf „Speichern und prüfen“ klicken.']],
+    fields: [['token', 'API-Token']],
+  },
+  groq: {
+    role: 'Text erkennen (empfohlen)',
+    desc: 'Erkennt den Text mit Whisper large-v3, dem Modell, das Voicitool auch auf dem PC nutzt. Kostenlos: 8 Stunden Ton am Tag. Groq speichert die Tonspur nicht und trainiert nicht damit.',
+    steps: [['Auf console.groq.com anmelden (Google, GitHub oder E-Mail).', 'https://console.groq.com/login'],
+            ['Unter „API Keys“ auf „Create API Key“ klicken und den Schlüssel kopieren. Er wird nur einmal angezeigt.', 'https://console.groq.com/keys'],
+            ['Den Schlüssel (beginnt mit gsk_) hier einfügen und prüfen.']],
+    fields: [['key', 'API-Schlüssel']],
+  },
+  cloudflare: {
+    role: 'Text erkennen (Alternative)',
+    desc: 'Whisper large-v3-turbo über Cloudflare Workers AI. Kostenlos: etwa 3,5 Stunden Ton am Tag. Cloudflare trainiert nicht mit deinen Daten.',
+    steps: [['Auf dash.cloudflare.com ein kostenloses Konto anlegen.', 'https://dash.cloudflare.com/sign-up'],
+            ['Deine Account-ID kopieren: Sie steht nach dem Einloggen in der Adresszeile (dash.cloudflare.com/…) und unter „Workers AI“ → „REST API verwenden“.', 'https://dash.cloudflare.com/?to=/:account/ai/workers-ai'],
+            ['Unter „Mein Profil“ → „API-Tokens“ ein Token mit der Vorlage „Workers AI“ erstellen.', 'https://dash.cloudflare.com/profile/api-tokens'],
+            ['Account-ID und Token hier einfügen und prüfen.']],
+    fields: [['account', 'Account-ID'], ['token', 'API-Token']],
+  },
+  gemini: {
+    role: 'Text erkennen (optional)',
+    desc: 'Gemini 3.5 Transcribe erkennt den Text und hört dabei, wer spricht. Das tägliche Gratis-Limit veröffentlicht Google nicht, du siehst es in AI Studio.',
+    steps: [['In Google AI Studio anmelden.', 'https://aistudio.google.com'],
+            ['Auf „Get API key“ → „Create API key“ klicken und den Schlüssel kopieren.', 'https://aistudio.google.com/apikey'],
+            ['Den Hinweis oben bestätigen, den Schlüssel hier einfügen und prüfen.']],
+    fields: [['key', 'API-Schlüssel']],
+  },
+};
+function onlineCard(s, st) {
+  const info = ONLINE_INFO[s], sv = st.services[s];
+  const stored = Object.values(sv.fields).some(Boolean);
+  const badge = sv.set ? (sv.ok === false ? `<span class="pill bad">${esc(tf('Schlüssel abgelehnt'))}</span>`
+                          : sv.ok ? `<span class="pill ok">${esc(tf('Verbunden'))}</span>` : `<span class="pill">${esc(tf('Gespeichert'))}</span>`)
+                       : `<span class="pill">${esc(tf(stored && s === 'gemini' ? 'Hinweis nicht bestätigt' : 'Nicht eingerichtet'))}</span>`;
+  return `<div class="online-card${s === 'gemini' ? ' risky' : ''}" data-service="${s}">
+    <div class="oc-head"><b>${ONLINE_NAMES[s]}</b><span class="oc-role">${esc(tf(info.role))}</span>${badge}</div>
+    ${s === 'gemini' ? `<div class="oc-warn">${ic('warning')}<div>
+      <b>${esc(tf('Achtung: Google darf deine Tonspuren auswerten'))}</b>
+      <p>${esc(tf('Bei der kostenlosen Gemini-Stufe darf Google hochgeladene Tonspuren nutzen, um seine Produkte zu verbessern, und Menschen können sie anhören und lesen.'))}</p>
+      <p>${esc(tf('Laut Googles Bedingungen gilt das nicht in der EU, im Vereinigten Königreich und in der Schweiz. Lade nichts hoch, was privat ist oder dir nicht gehört. Nutzung erst ab 18 Jahren.'))}</p>
+      <button class="link-btn oc-link" data-url="https://ai.google.dev/gemini-api/terms">${esc(tf('Googles Bedingungen lesen'))} ↗</button></div></div>` : ''}
+    <p class="oc-desc">${esc(tf(info.desc))}</p>
+    <ol class="oc-steps">${info.steps.map(([t, url]) => `<li><span>${esc(tf(t))}</span>${url ? ` <button class="link-btn oc-link" data-url="${esc(url)}">${esc(new URL(url).hostname)} ↗</button>` : ''}</li>`).join('')}</ol>
+    ${s === 'gemini' ? `<label class="check oc-accept"><input type="checkbox" class="oc-accepted" ${sv.accepted ? 'checked' : ''}> ${esc(tf('Ich habe den Hinweis gelesen und möchte Gemini trotzdem nutzen.'))}</label>` : ''}
+    <div class="oc-fields">${info.fields.map(([f, label]) => `<label>${esc(tf(label))}<input type="password" class="oc-f" data-field="${f}" autocomplete="off" spellcheck="false"
+        placeholder="${esc(sv.fields[f] ? tf('gespeichert ({})', sv.fields[f]) : tf('hier einfügen'))}"></label>`).join('')}
+      <button class="btn small primary oc-save">${esc(tf('Speichern und prüfen'))}</button>
+      ${stored ? `<button class="btn small oc-check">${esc(tf('Prüfen'))}</button><button class="btn small danger oc-remove">${esc(tf('Entfernen'))}</button>` : ''}
+    </div>
+    <div class="oc-result small"></div>
+  </div>`;
+}
+async function renderOnline() {
+  const box = $('#onlineBox');
+  const st = await loadOnline();
+  if (!st) { box.innerHTML = `<div class="set-note">${esc(tf('Der Stand ließ sich nicht laden.'))}</div>`; return; }
+  const pc = st.weak
+    ? tf('Dieser PC hat keine passende NVIDIA-Grafikkarte. Ein 3-Minuten-Clip dauert hier {}, mit Online rechnen {}.', fmtDuration(st.local_3min), fmtDuration(st.online_3min))
+    : tf('Dieser PC rechnet mit der Grafikkarte, ein 3-Minuten-Clip dauert hier {}. Online rechnen hilft vor allem, wenn die Grafikkarte gerade belegt ist.', fmtDuration(st.local_3min));
+  box.innerHTML = `
+    <div class="online-intro${st.weak ? ' weak' : ''}">
+      <p>${esc(tf('Kostenlose Online-Dienste übernehmen die zwei schwersten Schritte: Stimmen trennen und Text erkennen. Dafür wird die Tonspur des Videos dorthin hochgeladen. Sprecher, Lachen und alles andere rechnet weiter dein PC.'))}</p>
+      <div class="online-pc">${ic(st.weak ? 'warning' : 'monitor')}<span>${esc(pc)}</span></div>
+      <ol class="online-how">
+        <li>${esc(tf('Zwei kostenlose Konten anlegen: MVSEP zum Trennen und Groq zum Erkennen des Textes.'))}</li>
+        <li>${esc(tf('Die Schlüssel unten einfügen und prüfen lassen.'))}</li>
+        <li>${esc(tf('Beim Video im Eingang auf „Online rechnen“ klicken.'))}</li>
+      </ol>
+    </div>
+    ${['mvsep', 'groq', 'cloudflare', 'gemini'].map(s => onlineCard(s, st)).join('')}
+    <div class="set-row">
+      <div><div class="set-label">${esc(tf('Text erkennen mit'))}</div>
+        <div class="set-hint" id="onlineAsrNote">${esc(asrChoices(false).find(o => o.value === st.ready.transcribe)?.note || tf('Wählbar sind nur eingerichtete Dienste.'))}</div></div>
+      <select id="onlineAsr" ${asrChoices(false).length ? '' : 'disabled'}>${asrChoices(false).length
+        ? asrChoices(false).map(o => `<option value="${o.value}" ${st.ready.transcribe === o.value ? 'selected' : ''}>${esc(o.label)}</option>`).join('')
+        : `<option>${esc(tf('Noch kein Dienst eingerichtet'))}</option>`}</select>
+    </div>
+    <p class="set-note online-note">${esc(tf('Die Wahl gilt als Standard. Beim Video im Eingang kannst du jedes Mal einen anderen eingerichteten Dienst wählen.'))}</p>
+    <p class="set-note online-note">${esc(tf('Die Schlüssel bleiben auf diesem PC (Ordner daten). Hochgeladen wird nur die Tonspur, und nur bei Videos, bei denen du „Online rechnen“ wählst.'))}</p>`;
+}
+async function onlineChanged() { await renderOnline(); inboxSig = ''; projectSig = ''; refreshState(); }
+async function onlineCheck(card, s) {
+  const res = $('.oc-result', card);
+  res.className = 'oc-result small'; res.textContent = tf('Wird geprüft …');
+  let r;
+  try { r = await api('POST', '/api/online/check', { service: s }, 30000); } catch (e) { r = { ok: false, text: e.message }; }
+  await onlineChanged();
+  const card2 = $(`.online-card[data-service="${s}"]`);
+  if (card2) { const out = $('.oc-result', card2); out.className = `oc-result small ${r.ok ? 'ok' : 'bad'}`; out.textContent = tf(r.text); }
+}
+$('#onlineBox').addEventListener('click', async e => {
+  const link = e.target.closest('.oc-link');
+  if (link) { api('POST', '/api/open-link', { url: link.dataset.url }).catch(err => toast(err.message, true)); return; }
+  const card = e.target.closest('.online-card'); if (!card) return;
+  const s = card.dataset.service;
+  if (e.target.closest('.oc-save')) {
+    if (s === 'gemini' && !$('.oc-accepted', card).checked) { toast(tf('Bitte zuerst den Hinweis zu Gemini lesen und bestätigen.'), true); return; }
+    const vals = {};
+    $$('.oc-f', card).forEach(i => { if (i.value.trim()) vals[i.dataset.field] = i.value.trim(); });
+    if (!Object.keys(vals).length) { toast(tf('Füge zuerst den Schlüssel ein.'), true); return; }
+    try { await api('PUT', '/api/online', { [s]: vals }); } catch (err) { toast(err.message, true); return; }
+    return onlineCheck(card, s);
+  }
+  if (e.target.closest('.oc-check')) return onlineCheck(card, s);
+  if (e.target.closest('.oc-remove')) {
+    if (!await dialog({ title: tf('Schlüssel für {} entfernen?', ONLINE_NAMES[s]), text: 'Voicitool vergisst den Schlüssel. Dein Konto beim Dienst bleibt bestehen.', tone: 'danger', ok: 'Entfernen' })) return;
+    const empty = Object.fromEntries(ONLINE_INFO[s].fields.map(([f]) => [f, '']));
+    await api('PUT', '/api/online', { [s]: empty }).catch(err => toast(err.message, true));
+    onlineChanged();
+  }
+});
+$('#onlineBox').addEventListener('change', async e => {
+  if (e.target.id === 'onlineAsr') {
+    await api('PUT', '/api/online', { asr: e.target.value }).catch(err => toast(err.message, true));
+    onlineChanged();
+    return;
+  }
+  if (!e.target.classList.contains('oc-accepted')) return;
+  await api('PUT', '/api/online', { gemini: { accepted: e.target.checked } }).catch(err => toast(err.message, true));
+  onlineChanged();
+});
+
+/* Einmal beim Start fragen, ob Online rechnen eingerichtet werden soll. Bei PCs ohne passende Grafikkarte
+   noch einmal nachfragen, wenn jemand ablehnt: dort dauert alles sehr lange. */
+async function maybeAskOnline() {
+  const st = await loadOnline();
+  if (!st || st.prompted || onlineReady()) return;
+  if (document.querySelector('.dlg-overlay') || !$('#settings').hidden || !$('#editor').hidden) { setTimeout(maybeAskOnline, 5000); return; }
+  const pc = st.weak
+    ? tf('Dein PC hat keine passende NVIDIA-Grafikkarte. Ein 3-Minuten-Clip dauert hier {}, mit Online rechnen {}.', fmtDuration(st.local_3min), fmtDuration(st.online_3min))
+    : tf('Dein PC rechnet mit der Grafikkarte, das geht schon schnell. Online rechnen hilft, wenn die Grafikkarte gerade belegt ist.');
+  const html = `<div class="online-ask"><p><b>${esc(pc)}</b></p>
+    <p>${esc(tf('Kostenlose Online-Dienste übernehmen dann Stimmen trennen und Text erkennen. Du brauchst dafür zwei kostenlose Konten, das Einrichten dauert etwa 5 Minuten, eine Anleitung ist dabei.'))}</p>
+    <p class="muted">${esc(tf('Du kannst es auch später jederzeit unter Einstellungen → Online rechnen einrichten.'))}</p></div>`;
+  const v = await dialog({ title: 'Online rechnen einrichten?', html, icon: 'cloud', wide: true,
+                           buttons: [{ label: 'Nein danke', value: 'no' }, { label: 'Jetzt einrichten', value: 'setup', kind: 'primary', main: true }] });
+  let setup = v === 'setup';
+  if (!setup && st.weak) {
+    setup = !!await dialog({
+      title: 'Bist du sicher?', tone: 'warn', icon: 'warning', wide: true,
+      html: `<div class="online-ask"><p><b>${esc(tf('Ohne Online rechnen dauert ein 3-Minuten-Clip auf diesem PC {}. Längere Videos brauchen entsprechend länger, eine ganze Folge oft Stunden.', fmtDuration(st.local_3min)))}</b></p>
+        <p>${esc(tf('Mit Online rechnen sind es etwa {}.', fmtDuration(st.online_3min)))}</p></div>`,
+      buttons: [{ label: 'Ja, auf diesem PC rechnen', value: false }, { label: 'Doch einrichten', value: true, kind: 'primary', main: true }],
+    });
+  }
+  await api('PUT', '/api/online', { prompted: true }).catch(() => {});
+  if (setup) openSettings('online');
+}
+
 /* Video von einer Web-Adresse laden (YouTube u. a.) */
 async function downloadFromUrl() {
   const input = $('#urlInput'), btn = $('#btnUrl');
@@ -1877,10 +2118,13 @@ async function downloadFromUrl() {
   btn.disabled = true; input.disabled = true;
   setUploadState('Video wird geladen …');
   try {
-    const { job } = await api('POST', '/api/download', { url });
+    const subs = $('#urlSubs').checked;
+    const { job } = await api('POST', '/api/download', { url, subs });
     const r = await waitJob(job);
     input.value = '';
-    setUploadState(tf('„{}" liegt im Eingang ({} MB).', r.title, r.mb), { file: r.filename, ttl: 15000 });
+    setUploadState(r.subs ? tf('„{}" liegt im Eingang ({} MB), mit Untertiteln.', r.title, r.mb)
+                          : tf('„{}" liegt im Eingang ({} MB).', r.title, r.mb), { file: r.filename, ttl: 15000 });
+    if (subs && !r.subs) toast(tf('Keine Untertitel vom Uploader gefunden. Unter „Text vorgeben“ gibt es vielleicht automatisch erzeugte.'), false, 7000);
     inboxSig = '';
     refreshState();
   } catch (e) {
@@ -1889,6 +2133,8 @@ async function downloadFromUrl() {
   } finally { btn.disabled = false; input.disabled = false; }
 }
 $('#btnUrl').onclick = downloadFromUrl;
+try { $('#urlSubs').checked = localStorage.getItem('vt.urlSubs') !== '0'; } catch { $('#urlSubs').checked = true; }
+$('#urlSubs').addEventListener('change', e => { try { localStorage.setItem('vt.urlSubs', e.target.checked ? '1' : '0'); } catch { /* egal */ } });
 $('#urlInput').addEventListener('keydown', e => { if (e.key === 'Enter') downloadFromUrl(); });
 
 /* Upload */
