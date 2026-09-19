@@ -125,7 +125,8 @@ def build_lines(words, pause_split=0.8, target_len=6.0, max_len=10.0, sentence_p
         length = last["e"] - cur["words"][0]["s"]
         gap = w["s"] - last["e"]
         ended = ends_sentence(last["w"])
-        new_sentence = ended or starts_sentence(w["w"], last["w"])   # Satzzeichen oder Großschreibung
+        new_sentence = (ended or starts_sentence(w["w"], last["w"])   # Satzzeichen oder Großschreibung
+                        or bool(last.get("eol")))   # Zeilenende im vorgegebenen Text (Liedzeile)
         split = (
             w["spk"] != cur["spk"]
             or bool(w.get("laugh")) != bool(last.get("laugh"))

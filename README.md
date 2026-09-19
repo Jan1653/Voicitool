@@ -44,6 +44,17 @@ Each quality level shows how long it will probably take. The estimate learns fro
 
 Projects can be sorted into categories (for example one category for 30 Family Guy clips) and exported together.
 
+### Provide the text
+
+For songs and episodes it helps a lot to give Voicitool the actual words. Before you click **Process**, click **Provide text**. Voicitool searches:
+
+- subtitles inside the video file itself (for example in an MKV episode)
+- the uploader's subtitles if the video came from YouTube
+- lyrics from [LRCLIB](https://lrclib.net) and lyrics.ovh
+- episode transcripts from the Fandom wikis (SpongeBob, The Simpsons and many more)
+
+You can also paste any text yourself. The text lands in a field first, so you can shorten it (for example verses that are not in the clip). Voicitool then takes the spelling from your text, fills in words it missed and starts a new line for every line of the lyrics. The timing still comes from the video. On our test videos this roughly halved the word errors when the right text was found.
+
 ### Quality levels
 
 | Level | Speech recognition | Voice separation | Video memory |
@@ -85,13 +96,19 @@ Standard is fine for most videos. Extreme mostly helps with telling speakers apa
 | Delete | Delete line |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 
-The audio switch **Original / Voices only / Background** lets you check how well the voices were separated. **Find laughs** adds "(laughs)" lines where someone laughs.
+The audio switch **Original / Voices only / Background** lets you check how well the voices were separated. If you set your own instrumental, **Background** plays that one. **Find laughs** adds "(laughs)" lines where someone laughs.
+
+**Cut video** removes parts of the video from the pack: drag across the part in the timeline. The original stays untouched, the cut part is only skipped while playing and left out when exporting, and everything after it moves forward. Ctrl+Z undoes a cut, a right-click on it removes it again.
+
+Where two lines of the same speaker touch, the middle of the shared edge moves both lines, a little to the left only the end of the left line and a little to the right only the start of the right one. The mouse pointer shows which one you grab.
+
+Lines that say the same thing can share one recording: right-click a line and pick **Link as a repeat of …**. You can unlink them the same way.
 
 ## Export
 
 A pack contains the video, one clip per line with its text and timestamps, a background track without voices and the pack info (title, icon, authors). You can choose between voices only and original sound for the clips, and adjust volume and video quality.
 
-If you have the instrumental version of the song, you can load it under Export → Background. Voicitool lines it up with the video on its own.
+If you have the instrumental version of the song, you can load it under Export → Background. Voicitool lines it up with the video on its own. If that doesn't work, click **Align by hand**: you see the separated background and your instrumental on top of each other, can drag yours until they match and listen to one of them or both at once.
 
 **Create link (72 h)** uploads the exported ZIP to Litterbox (catbox.moe) so you can send it to friends. No account is needed, and the link expires after 72 hours. Keep in mind that the clips usually belong to someone else.
 

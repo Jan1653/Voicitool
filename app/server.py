@@ -2,6 +2,7 @@
 import json
 import os
 import queue
+import re
 import shutil
 import subprocess
 import sys
@@ -775,7 +776,8 @@ def create_project(body: dict = Body(...)):
     try:
         pid = project.create(body["filename"], body.get("name"), body.get("language", "auto"),
                              _int_or_none(body.get("speakers")), body.get("quality"), body.get("laugh", True),
-                             body.get("ui_lang"), body.get("category"))
+                             body.get("ui_lang"), body.get("category"),
+                             reftext=body.get("reftext") if isinstance(body.get("reftext"), dict) else None)
     except FileNotFoundError:
         raise HTTPException(404, "Datei nicht im Eingang gefunden")
     if body.get("device") == "cpu":
@@ -821,6 +823,8 @@ def put_project(pid: str, body: dict = Body(...)):
     for key in ("characters", "lines", "pack", "export", "credits"):
         if key in body:
             current[key] = body[key]
+    if "cuts" in body:   # rausgeschnittene Stellen (Video schneiden im Editor)
+        current["cuts"] = project.normalize_cuts(body["cuts"], current.get("duration"))
     project.save(pid, current)
     return {"ok": True, "saved": time.strftime("%H:%M:%S")}
 
@@ -925,6 +929,67 @@ def _align_instrumental(pid, target, report):
     data["export"]["backing_source"] = "eigene"
     if info.get("stimmen_moeglich"):
         data["export"]["clip_source"] = "differenz"
+    project.save(pid, data)
+    return info
+
+
+@app.get("/api/textsources/search")
+def textsources_search(q: str = "", file: str = "", lang: str = ""):
+    """„Text vorgeben“: Liedtexte, Transkripte und Untertitel in allen Quellen suchen."""
+    from app.pipeline import textsources
+    return textsources.search(q[:200], file or None, lang or None)
+
+
+@app.get("/api/textsources/fetch")
+def textsources_fetch(source: str, id: str):
+    from app.pipeline import textsources
+    try:
+        return {"text": textsources.fetch(source, id)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Text konnte nicht geladen werden: {e}")
+
+
+@app.get("/api/textsources/suggest")
+def textsources_suggest(file: str):
+    """Suchvorschlag für eine Datei im Eingang: Titel vom Download, sonst der Dateiname ohne Zusätze."""
+    from app.pipeline import textsources
+    info = textsources.source_info(file) or {}
+    title = info.get("title") or Path(file).stem
+    title = re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", title)   # „[Official Video]“, „(Lyrics)“ usw. stören die Suche
+    return {"query": re.sub(r"[_\s]+", " ", title).strip(), "youtube": bool(info.get("url"))}
+
+
+@app.get("/api/projects/{pid}/instrumental/waves")
+def instrumental_waves(pid: str):
+    """Hüllkurven von KI-Hintergrund und eigenem Instrumental zum Ausrichten von Hand."""
+    from app.pipeline import instrumental
+    try:
+        return instrumental.waves(project.project_dir(pid))
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/projects/{pid}/instrumental/manual")
+def instrumental_manual(pid: str, body: dict = Body(...)):
+    """Versatz von Hand übernehmen: Instrumental neu anlegen und als Hintergrund nutzen."""
+    from app.pipeline import instrumental
+    try:
+        offset = float(body.get("offset", 0.0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Ungültiger Versatz")
+    if abs(offset) > 3600:
+        raise HTTPException(400, "Ungültiger Versatz")
+    try:
+        info = instrumental.manual(project.project_dir(pid), offset)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    data = project.load(pid)
+    data["instrumental"] = info
+    data["export"]["backing_source"] = "eigene"
+    if data["export"].get("clip_source") == "differenz":
+        data["export"]["clip_source"] = "stimmen"
     project.save(pid, data)
     return info
 

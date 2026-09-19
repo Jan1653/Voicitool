@@ -31,6 +31,71 @@ def load(pid):
     return json.loads((project_dir(pid) / "project.json").read_text(encoding="utf8"))
 
 
+# ------------------------------------------------------------------ Video schneiden (im Editor)
+# Rausgeschnittene Stellen werden nur gespeichert ("cuts": [[start, ende], …] in Sekunden des Originals).
+# Das Original bleibt unverändert; der Editor springt beim Abspielen darüber, erst der Export lässt sie weg.
+MIN_CUT = 0.05
+
+
+def normalize_cuts(cuts, duration):
+    """Gültige, sortierte, zusammengefasste Schnitte innerhalb des Videos."""
+    out = []
+    for c in cuts or []:
+        try:
+            s, e = sorted((float(c[0]), float(c[1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+        s, e = max(0.0, s), min(float(duration or e), e)
+        if e - s >= MIN_CUT:
+            out.append([round(s, 3), round(e, 3)])
+    out.sort()
+    merged = []
+    for s, e in out:
+        if merged and s <= merged[-1][1] + 0.01:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    return merged
+
+
+def keep_segments(cuts, duration):
+    """Die Teile des Videos, die bleiben: [(start, ende), …]."""
+    segs, t = [], 0.0
+    for s, e in cuts:
+        if s > t:
+            segs.append((t, s))
+        t = max(t, e)
+    if t < duration:
+        segs.append((t, duration))
+    return segs
+
+
+def cut_time(t, cuts):
+    """Zeitpunkt im Original -> Zeitpunkt im geschnittenen Video (in einem Schnitt: dessen Anfang)."""
+    shift = 0.0
+    for s, e in cuts:
+        if t >= e:
+            shift += e - s
+        elif t > s:
+            return s - shift
+    return t - shift
+
+
+def kept_part(start, end, cuts):
+    """Längster Teil von [start, ende], der nicht rausgeschnitten ist, oder None."""
+    parts, a = [], start
+    for s, e in cuts:
+        if e <= a or s >= end:
+            continue
+        if s > a:
+            parts.append((a, s))
+        a = max(a, e)
+    if a < end:
+        parts.append((a, end))
+    parts = [p for p in parts if p[1] - p[0] >= MIN_CUT]
+    return max(parts, key=lambda p: p[1] - p[0]) if parts else None
+
+
 def save(pid, data, own_category=False):
     """Speichern. Die Kategorie gehört der Übersicht: Eine laufende Verarbeitung mit älterer Kopie
     darf eine inzwischen geänderte Zuordnung nicht überschreiben (nur set_category ändert sie)."""
@@ -200,7 +265,8 @@ def _export_defaults():
     }
 
 
-def create(filename, name=None, language="auto", speakers=None, quality=None, laugh=True, ui_lang=None, category=None):
+def create(filename, name=None, language="auto", speakers=None, quality=None, laugh=True, ui_lang=None, category=None,
+           reftext=None):
     src = inbox_file(filename)
     name = (name or "").strip() or src.stem
     pid = _free_id(name)
@@ -228,6 +294,15 @@ def create(filename, name=None, language="auto", speakers=None, quality=None, la
         "export": _export_defaults(),
         "category": category if category and any(c["id"] == category for c in categories()) else None,
     }
+    if reftext and (reftext.get("text") or "").strip():   # vorgegebener Text (Liedtext, Drehbuch, Untertitel)
+        data["reftext"] = {"text": reftext["text"][:400000], "source": str(reftext.get("source") or "")[:200]}
+    try:   # Herkunft aus dem Download (YouTube-Adresse) ins Projekt übernehmen
+        from app.pipeline import textsources
+        info = textsources.source_info(filename)
+        if info:
+            data["source_url"] = info.get("url")
+    except Exception:
+        pass
     save(pid, data)
     return pid
 
@@ -292,6 +367,12 @@ def process(pid, report):
     data["language"] = asr["language"]
     data["language_probability"] = asr.get("language_probability")   # unsicher? -> Hinweis im Editor
     words = asr["words"]
+    if (data.get("reftext") or {}).get("text"):
+        # 3b) vorgegebenen Text zuordnen: richtige Schreibweise, fehlende Wörter, Liedzeilen als Zeilen
+        from app.pipeline import reftext
+        report("Sprache erkennen", 0.99, "Vorgegebenen Text zuordnen")
+        words, data["reftext"]["report"] = reftext.apply(words, data["reftext"]["text"], env=segment.envelope_db(voc16))
+        save(pid, data)
 
     # 4) Sprecher erkennen
     report("Sprecher erkennen", 0, "Stimmen analysieren")

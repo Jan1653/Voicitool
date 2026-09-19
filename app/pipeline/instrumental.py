@@ -66,16 +66,46 @@ def measure(mix16, inst16):
     if len(points) >= 2 and max(scores) > 0.15:
         xs = np.array([p[0] for p in points])
         ys = np.array([p[1] for p in points])
-        good = np.array(scores) > max(0.15, max(scores) * 0.4)
-        if good.sum() >= 2:
-            slope, intercept = np.polyfit(xs[good], ys[good], 1)
-        else:
-            slope, intercept = 0.0, float(np.median(ys))
-        quality = float(np.median(np.array(scores)[good])) if good.any() else float(max(scores))
+        sc = np.array(scores)
+        good = sc > max(0.15, sc.max() * 0.4)
+        xs, ys, sc = xs[good], ys[good], sc[good]
         length = len(inst16) / SR
+        slope, intercept, inl = _robust_line(xs, ys, sc, length)
+        quality = float(np.median(sc[inl])) if inl.any() else float(sc.max())
         return {"offset": float(intercept), "drift": float(slope * length), "slope": float(slope),
-                "quality": quality, "points": len(points)}
+                "quality": quality, "points": int(inl.sum())}
     return {"offset": float(offset), "drift": 0.0, "slope": 0.0, "quality": float(coarse_score), "points": 0}
+
+
+TOL = 0.03          # Messstellen, die höchstens so weit von der Linie liegen, stimmen überein (s)
+MIN_DRIFT = 0.03    # kleineres Auseinanderlaufen über die ganze Länge nicht ausgleichen (s)
+
+
+def _robust_line(xs, ys, sc, length):
+    """Versatz und Drift aus den Messstellen, unempfindlich gegen Ausreißer: Bei sich wiederholender Musik
+    rastet eine Stelle gern auf einen gleich klingenden Takt daneben ein. Eine einfache Ausgleichsgerade machte
+    daraus ein falsches Auseinanderlaufen (Test: nur verschobene Kopie, trotzdem 1,5 s „Drift“).
+    Gewählt wird die Linie, auf der die meisten Stellen übereinstimmen (bei Gleichstand die mit der besseren Güte)."""
+    cands = [(0.0, float(y)) for y in ys]   # fester Versatz
+    for i in range(len(xs)):
+        for j in range(i + 1, len(xs)):
+            if abs(xs[j] - xs[i]) > 1e-6:
+                s = (ys[j] - ys[i]) / (xs[j] - xs[i])
+                cands.append((float(s), float(ys[i] - s * xs[i])))
+    best = None
+    for s, c in cands:
+        inl = np.abs(ys - (c + s * xs)) < TOL
+        key = (int(inl.sum()), float(sc[inl].sum()))
+        if best is None or key > best[0]:
+            best = (key, inl)
+    inl = best[1]
+    if inl.sum() >= 2 and np.ptp(xs[inl]) > 1e-6:
+        slope, intercept = np.polyfit(xs[inl], ys[inl], 1)
+    else:
+        slope, intercept = 0.0, float(np.median(ys[inl]))
+    if abs(slope * length) < MIN_DRIFT:
+        slope, intercept = 0.0, float(np.median(ys[inl]))
+    return float(slope), float(intercept), inl
 
 
 def _apply(src, dst, offset, slope, gain, target_len, sr=44100):
@@ -213,6 +243,7 @@ def align(project_dir, source, on_progress=None):
         "datei": source.name,
         "versatz": round(m["offset"], 3),
         "drift": round(m["drift"], 3),
+        "tempo_slope": m["slope"],   # für das Ausrichten von Hand (Tempo bleibt, nur der Versatz ändert sich)
         "lautstaerke": round(gain, 3),
         "guete": round(quality, 3),
         "restpegel_db": round(float(rest_db), 1),
@@ -233,12 +264,61 @@ def align(project_dir, source, on_progress=None):
         (d / "stimmen_diff.wav").unlink(missing_ok=True)
 
     (d / "instrumental.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf8")
+    media.encode_opus(out, d / "instrumental.ogg")   # zum Anhören im Editor („Hintergrund“)
     report(1.0, f"{rating}: {note}")
     return info
 
 
+def source_file(project_dir):
+    return next(iter(sorted(project_dir.glob("instrumental_quelle.*"))), None)
+
+
+def _env_list(x, fps, sr=SR):
+    hop = sr // fps
+    n = len(x) // hop
+    if n == 0:
+        return []
+    rms = np.sqrt(np.mean(x[: n * hop].reshape(n, hop) ** 2, axis=1) + 1e-10)
+    db = np.clip(20 * np.log10(rms), -60, 0)
+    return [round(float(v), 1) for v in db]
+
+
+def waves(project_dir, fps=50):
+    """Hüllkurven zum Ausrichten von Hand: KI-Hintergrund (Video-Zeitachse) und das eigene Instrumental (eigene Zeitachse)."""
+    d = project_dir
+    src = source_file(d)
+    if src is None:
+        raise RuntimeError("Es ist keine eigene Instrumental-Datei gesetzt.")
+    info = json.loads((d / "instrumental.json").read_text(encoding="utf8")) if (d / "instrumental.json").exists() else {}
+    ref = media.load_mono(d / "hintergrund.wav")
+    own = media.load_mono(src)
+    return {"fps": fps, "ref": _env_list(ref, fps), "own": _env_list(own, fps), "source": src.name,
+            "offset": info.get("versatz", 0.0), "slope": info.get("tempo_slope", 0.0)}
+
+
+def manual(project_dir, offset):
+    """Versatz von Hand setzen (Tempo und Lautstärke bleiben wie bei der automatischen Messung)."""
+    d = project_dir
+    src = source_file(d)
+    if src is None:
+        raise RuntimeError("Es ist keine eigene Instrumental-Datei gesetzt.")
+    info = json.loads((d / "instrumental.json").read_text(encoding="utf8"))
+    slope = float(info.get("tempo_slope", 0.0))
+    if info.get("bewertung") == "passt nicht":
+        slope = 0.0   # die Messung war unbrauchbar, dann auch ihr Tempo nicht übernehmen
+    target_len = sf.info(d / "audio.wav").duration
+    out = d / "instrumental.wav"
+    _apply(src, out, float(offset), slope, float(info.get("lautstaerke", 1.0)), target_len)
+    media.encode_opus(out, d / "instrumental.ogg")
+    (d / "stimmen_diff.wav").unlink(missing_ok=True)   # passte zur alten Ausrichtung
+    info.update({"versatz": round(float(offset), 3), "tempo_slope": slope, "bewertung": "von Hand",
+                 "hinweis": "Von Hand ausgerichtet.", "stimmen_moeglich": False})
+    (d / "instrumental.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf8")
+    return info
+
+
 def remove(project_dir):
-    for name in ("instrumental.wav", "instrumental.json", "stimmen_diff.wav"):
+    for name in ("instrumental.wav", "instrumental.ogg", "instrumental.json", "stimmen_diff.wav"):
         (project_dir / name).unlink(missing_ok=True)
     for f in project_dir.glob("instrumental_quelle.*"):
         f.unlink(missing_ok=True)

@@ -593,18 +593,25 @@ function renderInbox(st) {
   inbox.innerHTML = st.inbox.length ? st.inbox.map(f => {
     const v = inboxForm[f];
     return `<div class="item inbox-item" data-file="${esc(f)}">
-      <div class="inbox-head"><span class="file" title="Datei im Eingang">${ic('clapper')}<span>${esc(f)}</span></span>
+      <div class="inbox-head"><span class="file" title="Datei im Eingang">${ic('clapper')}<span data-nolang>${esc(f)}</span></span>
         <button class="icon-btn del-inbox" title="Video in den Papierkorb verschieben">${ic('trash')}</button></div>
       <div class="inbox-form">
         <label class="grow">Projektname <input class="f-name" value="${esc(v.name)}" placeholder="${esc(stripExt(f))}"></label>
         <label>Sprache <select class="f-language">${langOptions(v.language)}</select></label>
         <label>Sprecher <input class="f-speakers" type="number" min="1" max="30" placeholder="auto" value="${esc(v.speakers)}"></label>
         <label>Qualität <select class="f-quality">${qualityOptions(v.quality)}</select></label>
-        ${(st.categories || []).length ? `<label>Kategorie <select class="f-category"><option value="">${esc(tf('Keine'))}</option>${st.categories.map(c => `<option value="${esc(c.id)}" ${c.id === v.category ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
+        ${(st.categories || []).length ? `<label>Kategorie <select class="f-category"><option value="">${esc(tf('Keine'))}</option>${st.categories.map(c => `<option data-nolang value="${esc(c.id)}" ${c.id === v.category ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : ''}
         <label class="check-inline" title="Lacher als eigene Zeilen „(lacht)“ anlegen"><span>Lachen</span><span class="check"><input type="checkbox" class="f-laugh" ${v.laugh ? 'checked' : ''}> erkennen</span></label>
         <button class="btn primary go">Verarbeiten</button>
       </div>
       <div class="muted small qhint">${esc(qualityHint(v.quality))}</div>
+      <div class="reftext-row${v.reftext ? ' on' : ''}">
+        <button class="btn small reftext-btn">${ic('music')}<span>${esc(tf(v.reftext ? 'Text ändern' : 'Text vorgeben'))}</span></button>
+        <span class="muted small">${v.reftext
+          ? esc(tf('Vorgegebener Text: {} ({} Zeilen)', v.reftext.source || tf('selbst eingefügt'), v.reftext.text.split('\n').filter(x => x.trim()).length))
+          : esc(tf('Liedtext, Drehbuch oder Untertitel vorgeben: Voicitool ordnet ihn dann nur noch zu.'))}</span>
+        ${v.reftext ? `<button class="link-btn reftext-clear">${esc(tf('entfernen'))}</button>` : ''}
+      </div>
       <div class="lang-hint" ${languageHint(v.language) ? '' : 'hidden'}><span>${esc(languageHint(v.language))}</span>
         <button class="btn small open-models">${esc(tf('Sprachpaket laden'))}</button></div>
     </div>`;
@@ -613,6 +620,82 @@ function renderInbox(st) {
   $$('select.f-language', inbox).forEach(enhanceLangSelect);
   enterItems(inbox, '.inbox-item', 'file');
   $$('.inbox-item', inbox).forEach(updateInboxEstimate);
+}
+
+/* Text vorgeben: Liedtext, Drehbuch oder Untertitel suchen (Datei, YouTube, LRCLIB, lyrics.ovh, Fandom-Wikis)
+   oder selbst einfügen. Der Text landet immer erst im Textfeld (prüfen, Strophen streichen), dann übernehmen.
+   Bei der Verarbeitung übernimmt Voicitool die Schreibweise und ergänzt fehlende Wörter, die Zeiten kommen
+   weiter aus dem Video. -> Promise<{text, source} | null> */
+function openRefTextDialog(file, current) {
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.className = 'dlg-overlay';
+    ov.innerHTML = `<div class="dlg wide reftext-dlg" role="dialog" aria-modal="true">
+      <div class="dlg-head"><div class="dlg-icon" aria-hidden="true">${ic('music')}</div>
+        <div class="dlg-titles"><h2>Text vorgeben</h2>
+        <p class="dlg-text">Such den Liedtext, das Drehbuch oder die Untertitel zu diesem Video, oder füg den Text selbst ein. Voicitool übernimmt dann die Schreibweise und ergänzt fehlende Wörter, die Zeiten kommen weiter aus dem Video.</p></div></div>
+      <div class="rt-search"><input class="rt-q" type="search" spellcheck="false" placeholder="Titel, Interpret oder Serie und Folge"><button class="btn small primary rt-go">${ic('search')}<span>Suchen</span></button></div>
+      <div class="rt-results"><div class="muted small rt-status"></div></div>
+      <label class="rt-label">Text <span class="muted small rt-count"></span></label>
+      <textarea class="rt-text" spellcheck="false" placeholder="Hier landet der gefundene Text. Du kannst ihn auch selbst einfügen oder kürzen, z. B. Strophen, die im Video nicht vorkommen."></textarea>
+      <div class="dlg-actions"><button class="btn rt-cancel">Abbrechen</button><button class="btn primary rt-ok">Übernehmen</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const box = $('.reftext-dlg', ov), q = $('.rt-q', box), list = $('.rt-results', box), ta = $('.rt-text', box);
+    let source = current?.source || '';
+    ta.value = current?.text || '';
+    const count = () => {
+      const n = ta.value.split('\n').filter(x => x.trim()).length;
+      $('.rt-count', box).textContent = n ? tf('{} Zeilen', n) : '';
+      $('.rt-ok', box).disabled = !n;
+    };
+    ta.addEventListener('input', () => { source = ''; count(); });
+    count();
+    const status = t => { $('.rt-status', box).textContent = t; };
+    async function run() {
+      const query = q.value.trim();
+      status(tf('Suche …'));
+      $$('.rt-hit', list).forEach(x => x.remove());
+      let r;
+      try { r = await api('GET', `/api/textsources/search?q=${encodeURIComponent(query)}&file=${encodeURIComponent(file)}&lang=${encodeURIComponent(inboxForm[file]?.language || '')}`, undefined, 90000); }
+      catch (e) { status(e.message); return; }
+      const failed = r.failed?.length ? ' ' + tf('Nicht erreichbar: {}.', r.failed.join(', ')) : '';
+      status((r.results.length ? tf('{} Treffer. Klick übernimmt den Text ins Feld unten.', r.results.length) : tf('Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.')) + failed);
+      for (const hit of r.results) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'rt-hit';
+        const own = hit.source === 'Datei' || hit.source === 'YouTube';   // Beschriftung von Voicitool selbst: übersetzen
+        b.innerHTML = `<span class="rt-src">${esc(tf(hit.source))}</span><span class="rt-main"><b ${own ? '' : 'data-nolang'}>${esc(own ? tf(hit.title) : hit.title)}</b><span class="muted small" ${own ? '' : 'data-nolang'}>${esc(own ? tf(hit.subtitle || '') : hit.subtitle || '')}${hit.lines ? ' · ' + esc(tf('{} Zeilen', hit.lines)) : ''}</span>${hit.preview ? `<span class="muted small rt-prev" data-nolang>${esc(hit.preview)}</span>` : ''}</span>`;
+        b.onclick = async () => {
+          let text = hit.text;
+          if (!text) {
+            b.disabled = true;
+            try { text = (await api('GET', `/api/textsources/fetch?source=${encodeURIComponent(hit.source)}&id=${encodeURIComponent(hit.id)}`)).text; }
+            catch (e) { toast(e.message, true); b.disabled = false; return; }
+            b.disabled = false;
+          }
+          ta.value = text; count();
+          source = `${hit.source}: ${hit.title}`;
+          $$('.rt-hit', list).forEach(x => x.classList.toggle('on', x === b));
+          ta.scrollTop = 0;
+        };
+        list.appendChild(b);
+      }
+    }
+    $('.rt-go', box).onclick = run;
+    q.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+    const close = val => { ov.remove(); document.removeEventListener('keydown', onKey, true); resolve(val); };
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(null); } };
+    document.addEventListener('keydown', onKey, true);
+    $('.rt-cancel', box).onclick = () => close(null);
+    $('.rt-ok', box).onclick = () => close({ text: ta.value.trim(), source: source || tf('selbst eingefügt') });
+    api('GET', `/api/textsources/suggest?file=${encodeURIComponent(file)}`).then(r => {
+      if (!q.value) q.value = r.query || '';
+      if (!current) run();   // gleich suchen: Untertitel in der Datei oder von YouTube tauchen so sofort auf
+    }).catch(() => {});
+    q.focus();
+  });
 }
 
 /* Sprachwahl mit Suche statt einer langen Liste. Das eigentliche <select> bleibt (unsichtbar) für den
@@ -754,6 +837,12 @@ inboxEl.addEventListener('click', async e => {
   const it = e.target.closest('.item'); if (!it) return;
   const file = it.dataset.file;
   if (e.target.closest('.open-models')) { openSettings(); return; }
+  if (e.target.closest('.reftext-btn')) {
+    const r = await openRefTextDialog(file, inboxForm[file]?.reftext);
+    if (r && inboxForm[file]) { inboxForm[file].reftext = r; inboxSig = ''; refreshState(); }
+    return;
+  }
+  if (e.target.closest('.reftext-clear')) { if (inboxForm[file]) delete inboxForm[file].reftext; inboxSig = ''; refreshState(); return; }
   if (e.target.closest('.del-inbox')) {
     if (!await dialog({ title: tf('„{}" in den Papierkorb verschieben?', file), text: 'Du kannst es aus dem Papierkorb von Windows wiederherstellen.',
                        tone: 'danger', ok: 'In den Papierkorb' })) return;
@@ -766,7 +855,7 @@ inboxEl.addEventListener('click', async e => {
     const pf = await preflight('process', { file, quality: v.quality, laugh: v.laugh, language: v.language });
     if (!pf) { b.disabled = false; return; }
     try {
-      await api('POST', '/api/projects', { filename: file, name: v.name.trim() || stripExt(file), language: v.language, speakers: v.speakers, quality: v.quality, laugh: v.laugh, ui_lang: window.VT_I18N?.lang, device: pf.device, category: v.category || null });
+      await api('POST', '/api/projects', { filename: file, name: v.name.trim() || stripExt(file), language: v.language, speakers: v.speakers, quality: v.quality, laugh: v.laugh, ui_lang: window.VT_I18N?.lang, device: pf.device, category: v.category || null, reftext: v.reftext || null });
       delete inboxForm[file];
       toast('Verarbeitung gestartet.');
     } catch (err) { toast(err.message, true); b.disabled = false; }
@@ -823,7 +912,7 @@ function renderProjects(st) {
     const open = searching || !c.collapsed;
     html += `<div class="cat${open ? '' : ' collapsed'}" data-cat="${esc(c.id)}">
       <div class="cat-head" draggable="true" title="${esc(tf('Klicken zum Auf- und Zuklappen, ziehen zum Umsortieren'))}">
-        <span class="grip" aria-hidden="true">${ic('grip')}</span><span class="chev" aria-hidden="true">${ic('chevron-right')}</span><span class="cat-name">${ic('folder')}<span>${esc(c.name)}</span></span>
+        <span class="grip" aria-hidden="true">${ic('grip')}</span><span class="chev" aria-hidden="true">${ic('chevron-right')}</span><span class="cat-name">${ic('folder')}<span data-nolang>${esc(c.name)}</span></span>
         <span class="pill">${all.length}</span><span class="muted small">${esc(tf('{} fertig', ready))}</span>
         <span class="spacer"></span>
         <button class="btn small cat-share" title="${esc(tf('Alle fertigen Projekte als Packs exportieren: eine ZIP für Freunde oder direkt ins Spiel'))}">${ic('package')}<span>${esc(tf('Exportieren'))}</span></button>
@@ -856,7 +945,7 @@ function projectItem(p, j) {
   const canRetry = !j && ['fehler', 'abgebrochen', 'wartet', 'verarbeitet'].includes(p.status);
   const q = retryQuality[p.id] || p.quality || 'standard';
   return `<div class="item" data-id="${esc(p.id)}" data-name="${esc(p.name)}" draggable="true">
-    <div class="name">${esc(p.name)} <button class="link-btn ren" title="Umbenennen">${ic('pencil')}</button>
+    <div class="name"><span data-nolang>${esc(p.name)}</span> <button class="link-btn ren" title="Umbenennen">${ic('pencil')}</button>
       <button class="link-btn cat-move" title="${esc(tf('In Kategorie verschieben'))}">${ic('folder-move')}</button></div>
     <span class="status ${esc(j ? 'verarbeitet' : p.status)}${elsewhere ? ' elsewhere' : ''}"${elsewhere ? ` title="${esc(tf('Fortschritt siehst du in dem Fenster, das es verarbeitet. Hängt es, hilft Neu starten.'))}"` : ''}>${esc(statusText)}</span>
     ${processing ? `<div class="bar"><div style="width:0%"></div></div><span class="eta muted small"></span>` : ''}
@@ -1121,7 +1210,7 @@ async function runCategoryExport(cid, install, overwrite, only) {
     const r = await waitJob(job);
     if (install && !overwrite && r.exists?.length) {
       const again = await dialog({ title: 'Packs ersetzen?', tone: 'warn', icon: 'gamepad', ok: 'Ersetzen',
-                                   html: `${esc(tf('Diese Packs gibt es schon im Spiel:'))}<br>${r.exists.map(x => `<code>${esc(x.name)}</code>`).join('<br>')}` });
+                                   html: `${esc(tf('Diese Packs gibt es schon im Spiel:'))}<br>${r.exists.map(x => `<code data-nolang>${esc(x.name)}</code>`).join('<br>')}` });
       if (again) return runCategoryExport(cid, true, true, r.exists.map(x => x.id));
     }
     const list = [{ level: 'ok', text: tf('{} Packs mit {} Clips exportiert.', r.packs, r.clips) }];
@@ -1824,7 +1913,9 @@ async function openProject(pid, fromEl) {
 
 function showEditor(pid, data) {
   S.pid = pid; S.p = data;
+  S.p.cuts = S.p.cuts || [];
   S.undo = []; S.redo = []; S.sel = null; S.viewStart = 0;
+  setCutMode(false);
   seenItems.delete($('#lineList'));   // Zeilen eines neu geöffneten Projekts nicht einzeln einblenden
   S.voices = null;
   setTimeout(loadVoices, 0);
@@ -1923,25 +2014,44 @@ $('#projTitle').onclick = async () => {
   if (nn && nn !== S.p.name) renameProject(nn);
 };
 
+// „Hintergrund“ im Editor: das eigene Instrumental, wenn es als Hintergrund gewählt ist, sonst die KI-Trennung
+const ownBacking = () => !!(S.p?.instrumental && (S.p.export?.backing_source || 'auto') === 'eigene');
+function refreshBackingAudio() {
+  const a = $('#audioBack');
+  const want = ownBacking() ? 'instrumental.ogg' : 'hintergrund.ogg';
+  const ver = want === 'instrumental.ogg' ? `?v=${encodeURIComponent(S.p.instrumental?.versatz ?? '')}` : '';
+  if (a.dataset.file === want && a.dataset.ver === ver) return;   // neu ausgerichtet: neue Fassung laden
+  a.dataset.file = want;
+  a.dataset.ver = ver;
+  a.src = mediaUrl(want) + ver;
+  if (S.audioMode === 'hinter') setAudioMode('hinter');
+}
+$('#audioBack').addEventListener('error', e => {   // ältere Projekte haben nur instrumental.wav
+  const a = e.target;
+  if (a.dataset.file === 'instrumental.ogg') { a.dataset.file = 'instrumental.wav'; a.src = mediaUrl('instrumental.wav'); }
+});
+
 function loadMedia(t = 0) {
   video.src = mediaUrl(S.p.preview || S.p.source);
   $('#audioVoc').src = mediaUrl('stimmen.ogg');
-  $('#audioBack').src = mediaUrl('hintergrund.ogg');
+  $('#audioBack').dataset.file = '';
+  refreshBackingAudio();
   if (t) video.addEventListener('loadedmetadata', () => { video.currentTime = t; }, { once: true });
   setAudioMode(S.audioMode || 'orig');
 }
 
 /* ------------------------------------------------------------ Speichern & Undo */
 function snapshot() {
-  S.undo.push(JSON.stringify({ lines: S.p.lines, characters: S.p.characters }));
+  S.undo.push(JSON.stringify({ lines: S.p.lines, characters: S.p.characters, cuts: S.p.cuts }));
   if (S.undo.length > 200) S.undo.shift();
   S.redo = [];
 }
 function restore(from, to) {
   if (!from.length) return;
-  to.push(JSON.stringify({ lines: S.p.lines, characters: S.p.characters }));
+  to.push(JSON.stringify({ lines: S.p.lines, characters: S.p.characters, cuts: S.p.cuts }));
   const st = JSON.parse(from.pop());
   S.p.lines = st.lines; S.p.characters = st.characters;
+  if (st.cuts) S.p.cuts = st.cuts;
   if (S.sel && !lineById(S.sel)) S.sel = null;
   renderAll(); scheduleSave();
 }
@@ -1960,7 +2070,7 @@ async function save() {
   const pid = S.pid;
   try {
     const r = await api('PUT', `/api/projects/${encodeURIComponent(pid)}`,
-      { lines: S.p.lines, characters: S.p.characters, pack: S.p.pack, export: S.p.export, credits: S.p.credits });
+      { lines: S.p.lines, characters: S.p.characters, pack: S.p.pack, export: S.p.export, credits: S.p.credits, cuts: S.p.cuts });
     if (pid === S.pid) $('#saveState').textContent = `Gespeichert ${r.saved}`;
   } catch (e) { $('#saveState').textContent = 'Speichern fehlgeschlagen!'; toast('Speichern fehlgeschlagen: ' + e.message, true); }
 }
@@ -2026,9 +2136,31 @@ const setBuffering = on => $('#btnPlay').classList.toggle('buffering', on && !vi
 video.addEventListener('waiting', () => setBuffering(true));
 ['playing', 'pause', 'emptied', 'canplay'].forEach(ev => video.addEventListener(ev, () => setBuffering(false)));
 
+/* Video schneiden: rausgeschnittene Stellen ([start, ende] im Original). Das Original bleibt, der Editor springt
+   beim Abspielen darüber, der Export lässt sie weg (Video, Hintergrund, Zeitstempel rücken nach). */
+const cutAt = t => (S.p?.cuts || []).find(c => t >= c[0] && t < c[1]) || null;
+function addCut(a, b) {
+  const cuts = [...(S.p.cuts || []), [r3(Math.min(a, b)), r3(Math.max(a, b))]].sort((x, y) => x[0] - y[0]);
+  const merged = [];
+  for (const [s, e] of cuts) {
+    if (merged.length && s <= merged[merged.length - 1][1] + 0.01) merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], e);
+    else merged.push([s, e]);
+  }
+  S.p.cuts = merged;
+}
+function cutLinesIn(c) { return S.p.lines.filter(l => l.start >= c[0] && l.end <= c[1]).length; }
+async function removeCut(c) {
+  snapshot();
+  S.p.cuts = S.p.cuts.filter(x => x !== c);
+  scheduleSave(); drawTimeline();
+  toast(tf('Schnitt entfernt, die Stelle ist wieder im Video.'));
+}
+
 function tick() {
   if (S.p && !$('#editor').hidden) {
-    const t = video.currentTime;
+    let t = video.currentTime;
+    const cut = !video.paused && cutAt(t);
+    if (cut) { video.currentTime = Math.min(S.p.duration, cut[1] + 0.01); t = video.currentTime; }   // über Schnitte springen
     if (S.playUntil !== null && t >= S.playUntil) { video.pause(); S.playUntil = null; }
     const a = audios[S.audioMode];
     if (a && !video.paused && Math.abs(a.currentTime - t) > 0.12) a.currentTime = t;
@@ -2062,7 +2194,7 @@ function updateActive(t) {
 /* ------------------------------------------------------------ Zeilenliste */
 function renderCharFilter() {
   const sel = $('#charFilter'), cur = sel.value;
-  sel.innerHTML = '<option value="">Alle Charaktere</option>' + S.p.characters.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  sel.innerHTML = '<option value="">Alle Charaktere</option>' + S.p.characters.map(c => `<option data-nolang value="${c.id}">${esc(c.name)}</option>`).join('');
   sel.value = S.p.characters.some(c => c.id === cur) ? cur : '';
   $('#lineCount').textContent = S.p.lines.length;
   $('#charCount').textContent = S.p.characters.length;
@@ -2071,7 +2203,7 @@ $('#charFilter').onchange = renderLines;
 $('#textFilter').oninput = renderLines;
 
 function charOptions(selected) {
-  return S.p.characters.map(c => `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${esc(c.name)}</option>`).join('')
+  return S.p.characters.map(c => `<option data-nolang value="${c.id}" ${c.id === selected ? 'selected' : ''}>${esc(c.name)}</option>`).join('')
     + '<option value="__new">Neuer Charakter…</option>';
 }
 
@@ -2079,7 +2211,7 @@ function lineHtml(l, i) {
   const c0 = charById(l.chars[0]);
   const dur = l.end - l.start;
   const extras = l.chars.slice(1).map(id => charById(id)).filter(Boolean)
-    .map(c => `<span class="extra-char" data-rm="${c.id}" style="--c:${c.color}" title="Entfernen">+ ${esc(c.name)}</span>`).join('');
+    .map(c => `<span class="extra-char" data-nolang data-rm="${c.id}" style="--c:${c.color}" title="Entfernen">+ ${esc(c.name)}</span>`).join('');
   const master = masterOf(l);
   const reps = master ? [] : repeatsOf(l.id);
   const repBadge = master
@@ -2094,14 +2226,14 @@ function lineHtml(l, i) {
       <div class="spacer"></div>
       <button class="icon-btn play" title="Zeile abspielen (Enter)">${ic('play')}</button>
     </div>
-    <textarea class="${l.text.trim() ? '' : 'empty-text'}" rows="1" spellcheck="true" placeholder="Text / Untertitel">${esc(l.text)}</textarea>
+    <textarea data-nolang class="${l.text.trim() ? '' : 'empty-text'}" rows="1" spellcheck="true" placeholder="Text / Untertitel">${esc(l.text)}</textarea>
     <div class="line-tools">
       <span class="grp">Start <button data-a="s-" title="50 ms früher">${ic('minus')}</button><button data-a="s+" title="50 ms später">${ic('plus')}</button><button data-a="sP" title="Start = Playhead (I)">${ic('to-start')}<span>hier</span></button></span>
       <span class="grp">Ende <button data-a="e-" title="50 ms früher">${ic('minus')}</button><button data-a="e+" title="50 ms später">${ic('plus')}</button><button data-a="eP" title="Ende = Playhead (O)"><span>hier</span>${ic('to-end')}</button></span>
       <button data-a="split" title="Am Playhead teilen (S)">${ic('scissors')}<span>Aufteilen</span></button>
       <button data-a="merge" title="Mit nächster Zeile zusammenführen (M)">${ic('merge')}<span>Zusammen</span></button>
       <button data-a="retrans" title="Text dieser Zeile neu erkennen">${ic('retranscribe')}<span>Text neu</span></button>
-      <select data-a="addchar" title="Zweiten Sprecher hinzufügen (spricht gleichzeitig)"><option value="">+ Sprecher</option>${S.p.characters.filter(c => !l.chars.includes(c.id)).map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}${S.p.characters.some(c => !l.chars.includes(c.id)) && S.p.characters.length > 2 ? `<option value="__all">${esc(tf('Alle Sprecher (Chor)'))}</option>` : ''}</select>
+      <select data-a="addchar" title="Zweiten Sprecher hinzufügen (spricht gleichzeitig)"><option value="">+ Sprecher</option>${S.p.characters.filter(c => !l.chars.includes(c.id)).map(c => `<option data-nolang value="${c.id}">${esc(c.name)}</option>`).join('')}${S.p.characters.some(c => !l.chars.includes(c.id)) && S.p.characters.length > 2 ? `<option value="__all">${esc(tf('Alle Sprecher (Chor)'))}</option>` : ''}</select>
       <div class="spacer"></div>
       <button data-a="del" title="Zeile löschen (Entf)">${ic('trash')}</button>
     </div>
@@ -2642,7 +2774,7 @@ function mergeOptions(c) {
   const sims = Object.fromEntries((S.voices?.[c.id] || []).map(([id, v]) => [id, v]));
   others.sort((a, b) => (sims[b.id] ?? -1) - (sims[a.id] ?? -1));
   const top = others.length > 1 && sims[others[0].id] != null ? others[0].id : null;
-  return others.map(o => `<option value="${o.id}">${esc(o.name)}${o.id === top ? ' · ' + esc(tf('ähnlichste Stimme')) : ''}</option>`).join('');
+  return others.map(o => `<option data-nolang value="${o.id}">${esc(o.name)}${o.id === top ? ' · ' + esc(tf('ähnlichste Stimme')) : ''}</option>`).join('');
 }
 async function loadVoices() {
   if (!S.pid) return;
@@ -2882,6 +3014,9 @@ function renderInstrumental() {
   $('#clipDiffRow').hidden = !(i && i.stimmen_moeglich);
   $('#backingOwnRadio').disabled = !i;
   $('#btnInstRemove').hidden = !i;
+  $('#btnInstManual').hidden = !i;
+  $('#btnInstManual').classList.toggle('primary', !!i && ['passt nicht', 'mäßig'].includes(i.bewertung));
+  refreshBackingAudio();
   const rep = $('#instReport');
   if (!i) {
     rep.className = 'small muted';
@@ -2951,6 +3086,166 @@ $('#btnInstUrl').onclick = async () => {
   }
 };
 
+$$('input[name=backingSource]').forEach(r => r.addEventListener('change', () => setTimeout(refreshBackingAudio, 0)));
+$('#btnInstManual').onclick = () => openInstAligner();
+
+/* Instrumental von Hand ausrichten: oben der Hintergrund, den die KI aus dem Video getrennt hat, unten das eigene
+   Instrumental auf der Zeitachse des Videos. Schieben mit der Maus oder den Knöpfen, Mausrad zoomt.
+   Anhören einzeln oder beide zusammen: solange es nicht passt, hört man bei „Beide“ ein Echo. */
+async function openInstAligner() {
+  let W;
+  try { W = await api('GET', `/api/projects/${encodeURIComponent(S.pid)}/instrumental/waves`); }
+  catch (e) { toast(e.message, true); return; }
+  video.pause();
+  const fps = W.fps, tempo = 1 / (1 - (W.slope || 0)), total = W.ref.length / fps;
+  let offset = W.offset || 0, mode = 'both', playing = null;
+  const view = { len: Math.min(30, Math.max(5, total)), start: 0 };
+  view.start = clamp(video.currentTime - view.len / 3, 0, Math.max(0, total - view.len));
+
+  const ov = document.createElement('div');
+  ov.className = 'dlg-overlay';
+  ov.innerHTML = `<div class="dlg wide inst-align" role="dialog" aria-modal="true">
+    <div class="dlg-head"><div class="dlg-icon" aria-hidden="true">${ic('music')}</div>
+      <div class="dlg-titles"><h2>Instrumental von Hand ausrichten</h2>
+      <p class="dlg-text">Oben der Hintergrund, den die KI aus dem Video getrennt hat, unten dein Instrumental. Schieb dein Instrumental mit der Maus, bis die Ausschläge übereinanderliegen. Mausrad zoomt.</p></div></div>
+    <div class="ia-legend"><span class="ia-ref">KI-Hintergrund</span><span class="ia-own">Dein Instrumental</span></div>
+    <canvas class="ia-canvas"></canvas>
+    <input type="range" class="ia-pos" min="0" step="0.1" aria-label="Stelle im Video">
+    <div class="ia-row">
+      <label>Versatz <input type="number" class="ia-off" step="0.01"> s</label>
+      <div class="row-btns">${[-1, -0.1, -0.01, 0.01, 0.1, 1].map(d => `<button class="btn small" data-d="${d}">${d > 0 ? '+' : '−'}${String(Math.abs(d)).replace('.', ',')} s</button>`).join('')}</div>
+    </div>
+    <div class="ia-row">
+      <div class="seg ia-mode"><button data-m="ref">KI-Hintergrund</button><button data-m="own">Dein Instrumental</button><button data-m="both" class="on">Beide</button></div>
+      <button class="btn small ia-play">${ic('play')}<span>Anhören</span></button>
+    </div>
+    <div class="dlg-actions"><button class="btn ia-cancel">Abbrechen</button><button class="btn primary ia-ok">Übernehmen</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const box = $('.inst-align', ov), cvA = $('.ia-canvas', ov), pos = $('.ia-pos', ov), off = $('.ia-off', ov);
+  pos.max = Math.max(0, total - view.len).toFixed(1);
+  const aRef = new Audio(mediaUrl('hintergrund.ogg')), aOwn = new Audio(mediaUrl(W.source));
+  aOwn.playbackRate = tempo;
+
+  // jede Spur nach ihrer eigenen Dynamik zeichnen (leiseste 25 % unten, lauteste Stelle oben): Schläge und Pausen
+  // treten hervor, auch wenn die Musik durchgehend laut ist
+  const range = a => { const s = a.filter(v => v > -59).sort((x, y) => x - y); return s.length ? [s[Math.floor(s.length * 0.25)], s[s.length - 1]] : [-60, 0]; };
+  const rRef = range(W.ref), rOwn = range(W.own);
+  const lvl = (v, r) => clamp((v - r[0]) / Math.max(1, r[1] - r[0]), 0, 1);
+  const ownAt = t => { const i = Math.floor((t + offset) * tempo * fps); return i >= 0 && i < W.own.length ? lvl(W.own[i], rOwn) : 0; };
+  const refAt = t => { const i = Math.floor(t * fps); return i >= 0 && i < W.ref.length ? lvl(W.ref[i], rRef) : 0; };
+  function draw() {
+    const dpr = window.devicePixelRatio || 1, w = cvA.clientWidth, h = cvA.clientHeight;
+    if (cvA.width !== Math.round(w * dpr)) { cvA.width = Math.round(w * dpr); cvA.height = Math.round(h * dpr); }
+    const c = cvA.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, w, h);
+    const css = getComputedStyle(document.documentElement);
+    const col = { ref: css.getPropertyValue('--muted').trim() || '#8d94a3', own: css.getPropertyValue('--accent').trim() || '#a855f7',
+                  grid: css.getPropertyValue('--line').trim() || '#2c313c', text: css.getPropertyValue('--muted').trim() || '#8d94a3' };
+    const half = h / 2;
+    c.fillStyle = col.grid;
+    c.fillRect(0, half, w, 1);
+    c.font = '11px Segoe UI'; c.textBaseline = 'top';
+    const step = view.len > 60 ? 10 : view.len > 20 ? 5 : 1;
+    for (let s = Math.ceil(view.start / step) * step; s < view.start + view.len; s += step) {
+      const x = (s - view.start) / view.len * w;
+      c.fillStyle = col.grid; c.fillRect(x, 0, 1, h);
+      c.fillStyle = col.text; c.fillText(fmt(s, false), x + 3, 2);
+    }
+    for (const [lane, fn, color] of [[0, refAt, col.ref], [1, ownAt, col.own]]) {
+      c.fillStyle = color;
+      const mid = lane === 0 ? half / 2 : half + half / 2;
+      for (let x = 0; x < w; x++) {
+        const t = view.start + x / w * view.len;
+        const v = fn(t);                             // 0..1
+        const bar = Math.max(1, v * (half / 2 - 6));
+        c.fillRect(x, mid - bar, 1, bar * 2);
+      }
+    }
+    if (playing) {
+      const x = (playing.now() - view.start) / view.len * w;
+      c.fillStyle = '#fff'; c.fillRect(x, 0, 2, h);
+    }
+  }
+  const sync = () => { off.value = offset.toFixed(3); pos.value = view.start.toFixed(1); draw(); if (playing) startPlay(playing.now()); };
+  sync();
+
+  let drag = null;
+  cvA.addEventListener('pointerdown', e => { drag = { x: e.clientX, off: offset }; cvA.setPointerCapture(e.pointerId); });
+  cvA.addEventListener('pointermove', e => {
+    cvA.style.cursor = drag ? 'grabbing' : 'grab';
+    if (!drag) return;
+    offset = drag.off - (e.clientX - drag.x) / cvA.clientWidth * view.len;   // nach rechts ziehen = Instrumental später
+    off.value = offset.toFixed(3); draw();
+  });
+  cvA.addEventListener('pointerup', () => { if (drag) { drag = null; sync(); } });
+  cvA.addEventListener('wheel', e => {
+    e.preventDefault();
+    const t = view.start + e.offsetX / cvA.clientWidth * view.len;
+    view.len = clamp(view.len * (e.deltaY > 0 ? 1.25 : 0.8), 2, Math.max(2, total));
+    view.start = clamp(t - e.offsetX / cvA.clientWidth * view.len, 0, Math.max(0, total - view.len));
+    pos.max = Math.max(0, total - view.len).toFixed(1);
+    sync();
+  }, { passive: false });
+  pos.oninput = () => { view.start = +pos.value; draw(); };
+  off.onchange = () => { const v = parseFloat(String(off.value).replace(',', '.')); if (Number.isFinite(v)) offset = v; sync(); };
+  $$('[data-d]', box).forEach(b => b.onclick = () => { offset = Math.round((offset + +b.dataset.d) * 1000) / 1000; sync(); });
+  $$('.ia-mode button', box).forEach(b => b.onclick = () => {
+    mode = b.dataset.m;
+    $$('.ia-mode button', box).forEach(x => x.classList.toggle('on', x === b));
+    if (playing) startPlay(playing.now());
+  });
+
+  let own0 = null, raf = 0;
+  function stopPlay() {
+    aRef.pause(); aOwn.pause(); clearTimeout(own0); cancelAnimationFrame(raf);
+    playing = null; $('.ia-play', box).innerHTML = `${ic('play')}<span>${esc(tf('Anhören'))}</span>`; draw();
+  }
+  function startPlay(t0) {
+    aRef.pause(); aOwn.pause(); clearTimeout(own0);
+    const began = performance.now();
+    playing = { now: () => t0 + (performance.now() - began) / 1000 };
+    if (mode !== 'own') { aRef.currentTime = t0; aRef.play().catch(() => {}); }
+    if (mode !== 'ref') {
+      const ot = (t0 + offset) * tempo;
+      if (ot >= 0) { aOwn.currentTime = ot; aOwn.play().catch(() => {}); }
+      else own0 = setTimeout(() => { aOwn.currentTime = 0; aOwn.play().catch(() => {}); }, -ot / tempo * 1000);
+    }
+    $('.ia-play', box).innerHTML = `${ic('stop')}<span>${esc(tf('Stopp'))}</span>`;
+    const loop = () => {
+      if (!playing) return;
+      const t = playing.now();
+      if (t > view.start + view.len) { view.start = Math.min(t, Math.max(0, total - view.len)); pos.value = view.start.toFixed(1); }
+      if (t >= total) return stopPlay();
+      draw();
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+  }
+  $('.ia-play', box).onclick = () => (playing ? stopPlay() : startPlay(view.start));
+
+  const close = () => { stopPlay(); aRef.src = ''; aOwn.src = ''; ov.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  $('.ia-cancel', box).onclick = close;
+  $('.ia-ok', box).onclick = async () => {
+    const btn = $('.ia-ok', box);
+    btn.disabled = true;
+    try {
+      await flushSave();
+      const info = await api('POST', `/api/projects/${encodeURIComponent(S.pid)}/instrumental/manual`, { offset });
+      S.p.instrumental = info;
+      S.p.export.backing_source = 'eigene';
+      if (S.p.export.clip_source === 'differenz') S.p.export.clip_source = 'stimmen';
+      close();
+      fillExportForm();
+      toast(tf('Instrumental ausgerichtet (Versatz {} s).', offset.toFixed(2).replace('.', ',')));
+    } catch (e) { btn.disabled = false; toast(e.message, true); }
+  };
+  new ResizeObserver(draw).observe(cvA);
+}
+
 $('#btnInstRemove').onclick = async () => {
   try {
     await api('DELETE', `/api/projects/${encodeURIComponent(S.pid)}/instrumental`);
@@ -2982,6 +3277,13 @@ function renderExportChecks() {
   if (sounds.length) out.push(row('muted', 'sound', `${sounds.length} Laut-Zeile(n) „(…)“ ohne Worte (Keuchen, Kichern, Schrei). Text ergänzen oder so lassen. ${link(sounds, 'Erste zeigen')}`));
   const reps = lines.filter(l => l.repeat_of && lineById(l.repeat_of));
   if (reps.length) out.push(row('ok', 'repeat', `${reps.length} Wiederholung(en) teilen sich eine Aufnahme. Im Pack wird der Clip an allen Stellen abgespielt.`));
+  const cuts = S.p.cuts || [];
+  if (cuts.length) {
+    const sec = cuts.reduce((a, c) => a + c[1] - c[0], 0);
+    const gone = lines.filter(l => cuts.some(c => l.start >= c[0] && l.end <= c[1]));
+    out.push(row('muted', 'scissors', tf('Video geschnitten: {} Stelle(n), zusammen {} s, fehlen im Pack. Alles danach rückt nach vorne.', cuts.length, sec.toFixed(1).replace('.', ','))
+      + (gone.length ? ' ' + tf('{} Zeile(n) liegen darin und fallen weg.', gone.length) + ` ${link(gone, 'Erste zeigen')}` : '')));
+  }
   if (!out.length) out.push(row('ok', 'check-circle', `${lines.length} Zeilen, ${S.p.characters.length} Charaktere, bereit zum Export.`));
   $('#exChecks').innerHTML = out.join('');
 }
@@ -3139,12 +3441,11 @@ function lineMenu(l, laneChar, t) {
     { label: `Mit nächster Zeile von ${charById(l.chars[0])?.name || '…'} zusammenführen`, key: 'M', action: () => mergeLine(l) },
     { label: 'An Stimme anpassen', action: () => fitToVoice(l) },
     l.repeat_of
-      ? { label: 'Wiederholung lösen (eigene Aufnahme)', action: () => { snapshot(); delete l.repeat_of; afterChange(null); } }
-      : (() => {
-        const cand = [...S.p.lines].reverse().find(o => o !== l && !o.repeat_of && o.start < l.start
-          && o.chars[0] === l.chars[0] && o.text.trim().toLowerCase() === l.text.trim().toLowerCase());
-        return cand ? { label: `Als Wiederholung von #${lineNo(cand)} markieren`, action: () => { snapshot(); l.repeat_of = cand.id; afterChange(null); } } : null;
-      })(),
+      ? { label: 'Wiederholung lösen (eigene Aufnahme)', icon: 'repeat', action: () => { snapshot(); delete l.repeat_of; afterChange(null); } }
+      : repeatLinkMenu(l),
+    S.p.lines.some(o => o.repeat_of === l.id)
+      ? { label: 'Alle Wiederholungen dieser Aufnahme lösen', action: () => { snapshot(); S.p.lines.forEach(o => { if (o.repeat_of === l.id) delete o.repeat_of; }); afterChange(null); } }
+      : null,
     { label: 'Text neu erkennen', action: () => retranscribe(l) },
     { sep: true },
     { label: 'Kopieren', key: 'Strg+C', action: () => copyLine(l) },
@@ -3166,6 +3467,26 @@ function lineMenu(l, laneChar, t) {
     { sep: true },
     { label: 'Löschen', key: 'Entf', danger: true, action: () => lineAction(l.id, 'del') },
   ];
+}
+
+/** Wiederholung selbst verknüpfen: diese Zeile nutzt die Aufnahme einer anderen (ein Clip, mehrere Zeitpunkte).
+    Vorschläge: gleicher Sprecher zuerst, dann ähnlichster Text. */
+function repeatLinkMenu(l) {
+  const norm = x => (x || '').toLowerCase().replace(/[^\p{L}\p{N} ]/gu, ' ').split(/\s+/).filter(Boolean);
+  const mine = new Set(norm(l.text));
+  const sim = o => { const w = norm(o.text); if (!w.length || !mine.size) return 0; const hit = w.filter(x => mine.has(x)).length; return 2 * hit / (w.length + mine.size); };
+  const cands = S.p.lines.filter(o => o !== l && !o.repeat_of && o.repeat_of !== l.id && !S.p.lines.some(x => x.repeat_of === l.id && x === o))
+    .map(o => ({ o, score: sim(o) + (o.chars[0] === l.chars[0] ? 1 : 0) }))
+    .sort((a, b) => b.score - a.score).slice(0, 12);
+  if (!cands.length) return null;
+  const short = t => { t = (t || '…').trim(); return t.length > 42 ? t.slice(0, 40) + '…' : t; };
+  return {
+    label: 'Als Wiederholung verknüpfen mit …', icon: 'repeat',
+    sub: cands.map(({ o }) => ({
+      label: `#${lineNo(o)} ${short(o.text)}`, color: charById(o.chars[0])?.color,
+      action: () => { snapshot(); l.repeat_of = o.id; S.p.lines.forEach(x => { if (x.repeat_of === l.id) x.repeat_of = o.id; }); afterChange(null); },
+    })),
+  };
 }
 
 /** Menü für eine leere Stelle. laneChar = Spur (oder null über Lineal/Wellenform). */
@@ -3203,6 +3524,11 @@ function buildCursors() {
   CUR.moving = svg(arrow + badge(cross(.85), 6), 3, 2, 'grabbing');
   CUR.pan = svg(arrow + badge(sides), 3, 2, 'pointer');
   CUR.trim = svg(trim, 16, 16, 'ew-resize');
+  // eine Kante: Klammer zeigt, zu welcher Zeile sie gehört („[“ Anfang der rechten, „]“ Ende der linken)
+  const bracket = dir => `<path d='M${16 - dir * 3} 5.5h${dir * 3}v21h${-dir * 3}' fill='none' stroke='#fff' stroke-width='5' stroke-linejoin='round'/><path d='M${16 - dir * 3} 5.5h${dir * 3}v21h${-dir * 3}' fill='none' stroke='${acc}' stroke-width='2.4' stroke-linejoin='round'/><path d='M3.5 16 8.6 10.9v3.3h3.4v3.6H8.6v3.3zM28.5 16l-5.1-5.1v3.3h-3.4v3.6h3.4v3.3z' fill='#fff' stroke='#111' stroke-width='1.1' stroke-linejoin='round'/>`;
+  CUR.trimStart = svg(bracket(-1), 16, 16, 'ew-resize');
+  CUR.trimEnd = svg(bracket(1), 16, 16, 'ew-resize');
+  CUR.cut = svg(`<g transform='translate(4 4)' fill='none' stroke='#111' stroke-width='3.6' stroke-linecap='round'><circle cx='5' cy='18' r='3.2'/><circle cx='5' cy='6' r='3.2'/><path d='M7.6 16.2 22 4M7.6 7.8 22 20'/></g><g transform='translate(4 4)' fill='none' stroke='#fff' stroke-width='1.8' stroke-linecap='round'><circle cx='5' cy='18' r='3.2'/><circle cx='5' cy='6' r='3.2'/><path d='M7.6 16.2 22 4M7.6 7.8 22 20'/></g><circle cx='26' cy='16' r='1.6' fill='${red}'/>`, 26, 16, 'crosshair');
   CUR.rows = svg(`<g transform='rotate(90 16 16)'>${trim}</g>`, 16, 16, 'ns-resize');
   CUR.scrub = svg(`<path d='M16 9v19.5' stroke='#fff' stroke-width='3.6' stroke-linecap='round'/><path d='M16 9v19.5' stroke='${red}' stroke-width='1.7' stroke-linecap='round'/><path d='M10.6 2.8h10.8v4.3L16 11.8l-5.4-4.7z' fill='${red}' stroke='#fff' stroke-width='1.3' stroke-linejoin='round'/>`, 16, 10, 'crosshair');
   const root = document.documentElement.style;
@@ -3289,6 +3615,13 @@ function zoomSmooth(f) {
 }
 $('#btnZoomIn').onclick = () => zoomSmooth(1.5);
 $('#btnZoomOut').onclick = () => zoomSmooth(1 / 1.5);
+$('#btnCutMode').onclick = () => {
+  setCutMode(!S.cutMode);
+  if (S.cutMode) toast(tf('Video schneiden: Stelle in der Timeline aufziehen. Esc oder der Knopf beendet das Schneiden.'), false, 4500);
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && S.cutMode && !$('#editor').hidden && !document.querySelector('.dlg-overlay')) setCutMode(false);
+});
 
 /* Farben der Timeline kommen aus dem Design (hell/dunkel), neu gelesen bei jedem Wechsel */
 const TLC = {};
@@ -3331,6 +3664,26 @@ function drawBlock(x, y, w, h, color, { selected = false, alpha = 0.75, text = '
     }
     ctx.fillText(text, tx, y + h / 2 + 1); ctx.restore();
   }
+}
+
+const CUT_RED = '#e5484d';
+let cutPat = null;
+function cutPattern() {   // rote Schraffur für rausgeschnittene Stellen
+  if (cutPat) return cutPat;
+  const c = document.createElement('canvas');
+  c.width = c.height = 10;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(10,11,15,.55)'; g.fillRect(0, 0, 10, 10);
+  g.strokeStyle = 'rgba(229,72,77,.55)'; g.lineWidth = 2.2;
+  g.beginPath(); g.moveTo(-2, 12); g.lineTo(12, -2); g.moveTo(-2, 2); g.lineTo(2, -2); g.moveTo(8, 12); g.lineTo(12, 8); g.stroke();
+  cutPat = ctx.createPattern(c, 'repeat');
+  return cutPat;
+}
+
+function setCutMode(on) {
+  S.cutMode = !!on;
+  $('#btnCutMode')?.classList.toggle('on', S.cutMode);
+  if (S.p) drawTimeline();
 }
 
 function drawTimeline() {
@@ -3391,6 +3744,25 @@ function drawTimeline() {
     drawBlock(t2x(a), laneY(drag.lane) + 2, Math.max(2, (b - a) * S.pxPerSec), bh, c?.color || '#888',
       { alpha: 0.45, dashed: true, text: `${(b - a).toFixed(1)} s` });
   }
+  // Rausgeschnittene Stellen: schraffiert über Wellenform und Spuren, Dauer oben im Lineal
+  const cutBottom = H - OVERVIEW - 2, hatch = cutPattern();
+  const drawCut = (a, b, alpha) => {
+    const x0 = t2x(a), w = Math.max(2, (b - a) * S.pxPerSec);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = hatch; ctx.fillRect(x0, RULER - 4, w, cutBottom - RULER + 4);
+    ctx.fillStyle = CUT_RED; ctx.fillRect(x0, RULER - 4, 2, cutBottom - RULER + 4); ctx.fillRect(x0 + w - 2, RULER - 4, 2, cutBottom - RULER + 4);
+    ctx.globalAlpha = 1;
+    if (w > 46) {
+      ctx.font = '10px Segoe UI'; ctx.textBaseline = 'middle';
+      const txt = `✂ ${(b - a).toFixed(1).replace('.', ',')} s`, tw = ctx.measureText(txt).width;
+      ctx.fillStyle = CUT_RED; ctx.fillRect(x0 + 4, RULER - 3, tw + 8, 13);
+      ctx.fillStyle = '#fff'; ctx.fillText(txt, x0 + 8, RULER + 3.5);
+      ctx.textBaseline = 'alphabetic';
+    }
+  };
+  for (const c of S.p.cuts || []) if (c[1] >= t0 && c[0] <= t1) drawCut(c[0], c[1], 1);
+  if (drag?.kind === 'cut' && drag.moved) drawCut(Math.min(drag.t0, drag.t1), Math.max(drag.t0, drag.t1), 0.75);
+
   // Kante Wellenform/Spuren: beim Überfahren oder Ziehen als Griff sichtbar
   if (S.waveHover || S.drag?.kind === 'wave') {
     ctx.fillStyle = TLC.view || '#fff';
@@ -3416,6 +3788,8 @@ function drawTimeline() {
     const c = charById(l.chars[0]); ctx.fillStyle = c ? c.color : '#666';
     ctx.fillRect((l.start / dur) * W, oy + 3, Math.max(1, ((l.end - l.start) / dur) * W), OVERVIEW - 6);
   }
+  ctx.fillStyle = CUT_RED;
+  for (const c of S.p.cuts || []) ctx.fillRect((c[0] / dur) * W, oy, Math.max(2, ((c[1] - c[0]) / dur) * W), OVERVIEW);
   ctx.strokeStyle = TLC.view;
   ctx.strokeRect((S.viewStart / dur) * W + 0.5, oy + 0.5, Math.max(3, (W / S.pxPerSec / dur) * W) - 1, OVERVIEW - 1);
 
@@ -3428,6 +3802,7 @@ function drawTimeline() {
 
 function hitTest(x, y) {
   if (y >= cvH - OVERVIEW - 2) return { kind: 'overview' };
+  if (S.cutMode) return { kind: 'cut', cut: cutAt(x2t(x)) };
   if (Math.abs(y - laneTop()) <= 3) return { kind: 'wave-edge' };
   if (y < laneTop()) return { kind: 'scrub' };
   const laneIdx = laneAt(y);
@@ -3435,6 +3810,16 @@ function hitTest(x, y) {
   const t = x2t(x), tol = 6 / S.pxPerSec;
   const cands = S.p.lines.filter(l => l.chars.some(c => laneOf(c) === laneIdx) && t >= l.start - tol && t <= l.end + tol);
   cands.sort((a, b) => (a.id === S.sel ? -1 : b.id === S.sel ? 1 : 0));
+  // Gemeinsame Kante zweier Zeilen derselben Spur: genau in der Mitte beide ziehen, ein Stück links nur das Ende
+  // der linken, ein Stück rechts nur den Anfang der rechten Zeile (eigener Mauszeiger je Fall)
+  for (const l of cands) {
+    const nb = S.p.lines.find(o => o !== l && o.chars.some(c => laneOf(c) === laneIdx) && Math.abs(o.start - l.end) <= NEIGHBOUR_GAP);
+    if (!nb) continue;
+    const xb = t2x((l.end + nb.start) / 2);
+    if (Math.abs(x - xb) > 7) continue;
+    if (Math.abs(x - xb) <= 2) return { kind: 'end', line: l, laneIdx, shared: true };
+    return x < xb ? { kind: 'end', line: l, laneIdx } : { kind: 'start', line: nb, laneIdx };
+  }
   for (const l of cands) {
     const w = (l.end - l.start) * S.pxPerSec, edge = Math.min(6, w / 3);
     if (Math.abs(t2x(l.start) - x) <= edge) return { kind: 'start', line: l, laneIdx };
@@ -3461,21 +3846,49 @@ function snapTime(t, excludeId, excludeId2) {
 cv.addEventListener('mousemove', e => {
   if (S.drag) return;
   const h = hitTest(e.offsetX, e.offsetY);
-  cv.style.cursor = h.kind === 'start' || h.kind === 'end' ? CUR.trim : h.kind === 'move' ? CUR.move
-    : h.kind === 'empty' ? CUR.create : h.kind === 'wave-edge' ? CUR.rows : h.kind === 'overview' ? CUR.pan : CUR.scrub;
+  cv.style.cursor = h.kind === 'cut' ? CUR.cut : h.shared ? CUR.trim : h.kind === 'start' ? CUR.trimStart : h.kind === 'end' ? CUR.trimEnd
+    : h.kind === 'move' ? CUR.move : h.kind === 'empty' ? CUR.create : h.kind === 'wave-edge' ? CUR.rows : h.kind === 'overview' ? CUR.pan : CUR.scrub;
   const edge = h.kind === 'wave-edge';
   if (edge !== !!S.waveHover) { S.waveHover = edge; drawTimeline(); }
-  cv.title = h.kind === 'wave-edge' ? 'Ziehen: Wellenform größer/kleiner · Doppelklick: Standardgröße'
+  cv.title = h.kind === 'cut' ? (h.cut ? 'Rausgeschnittene Stelle · Klick = Schnitt entfernen' : 'Ziehen = Stelle aus dem Video rausschneiden · Esc = fertig')
+    : h.shared ? 'Gemeinsame Kante: beide Zeilen ziehen (eine wird länger, die andere kürzer)'
+    : h.kind === 'wave-edge' ? 'Ziehen: Wellenform größer/kleiner · Doppelklick: Standardgröße'
     : h.kind === 'empty' ? 'Ziehen = neue Zeile · Doppelklick = neue Zeile an der Stimme · Rechtsklick = Menü'
     : h.kind === 'move' ? 'Ziehen = verschieben (auch in andere Sprecher-Spur) · Rechtsklick = Menü'
-    : h.kind === 'start' || h.kind === 'end' ? 'Rand ziehen · liegt eine Zeile direkt daneben, wird sie um dasselbe kürzer/länger' : '';
+    : h.kind === 'start' ? 'Anfang dieser Zeile ziehen' : h.kind === 'end' ? 'Ende dieser Zeile ziehen'
+    : cutAt(x2t(e.offsetX)) ? 'Rausgeschnittene Stelle · Rechtsklick = Schnitt entfernen' : '';
 });
 
 cv.addEventListener('mousedown', e => {
   if (!S.p || e.button !== 0) return;
   closeMenu();
   const x = e.offsetX, y = e.offsetY, h = hitTest(x, y);
-  if (h.kind === 'wave-edge') {
+  if (h.kind === 'cut') {
+    const t0 = clamp(x2t(x), 0, S.p.duration);
+    S.drag = {
+      kind: 'cut', t0, t1: t0, moved: false,
+      move: ev => {
+        if (!S.drag.moved && Math.abs(ev.offsetX - x) < 4) return;
+        S.drag.moved = true;
+        S.drag.t1 = clamp(x2t(ev.offsetX), 0, S.p.duration);
+      },
+      up: async d => {
+        if (!d.moved) {
+          if (!h.cut) { S.playUntil = null; seek(t0); return; }
+          const ok = await dialog({ title: 'Schnitt entfernen?', icon: 'scissors', ok: 'Schnitt entfernen',
+            text: tf('Die Stelle von {} bis {} kommt wieder ins Video.', fmt(h.cut[0]), fmt(h.cut[1])) });
+          if (ok) removeCut(h.cut);
+          return;
+        }
+        const a = Math.min(d.t0, d.t1), b = Math.max(d.t0, d.t1);
+        if (b - a < 0.2) { drawTimeline(); return; }
+        snapshot(); addCut(a, b); scheduleSave(); drawTimeline();
+        const n = S.p.lines.filter(l => l.start >= a && l.end <= b).length;
+        toast(tf('{} s rausgeschnitten. Strg+Z macht es rückgängig.', (b - a).toFixed(1).replace('.', ','))
+          + (n ? ' ' + tf('{} Zeilen darin fehlen im Export.', n) : ''), false, 5000);
+      },
+    };
+  } else if (h.kind === 'wave-edge') {
     const startWave = L.wave, y0 = e.clientY;
     S.drag = {
       kind: 'wave',
@@ -3519,7 +3932,7 @@ cv.addEventListener('mousedown', e => {
     // Grenzt direkt eine Zeile desselben Sprechers an? Dann wandert die gemeinsame Kante:
     // eine Zeile wird größer, die andere genauso viel kleiner.
     let buddy = null, buddyOrig = null;
-    if (h.kind === 'start' || h.kind === 'end') {
+    if (h.shared) {   // nur mittig auf der gemeinsamen Kante: beide Zeilen ziehen
       const near = o => (h.kind === 'start' ? Math.abs(o.end - l.start) : Math.abs(o.start - l.end));
       buddy = S.p.lines
         .filter(o => o !== l && o.chars.some(c => l.chars.includes(c)) && near(o) <= NEIGHBOUR_GAP)
@@ -3617,6 +4030,12 @@ cv.addEventListener('contextmenu', e => {
   e.preventDefault();
   if (!S.p) return;
   const h = hitTest(e.offsetX, e.offsetY), t = x2t(e.offsetX);
+  const cut = cutAt(t);
+  if (cut) {
+    openMenu([{ label: 'Schnitt entfernen (Stelle wieder ins Video)', icon: 'scissors', action: () => removeCut(cut) },
+      { sep: true }, { label: 'Playhead hierher setzen', action: () => seek(t) }], e.clientX, e.clientY);
+    return;
+  }
   if (h.line) {
     selectLine(h.line.id, { reveal: false });
     openMenu(lineMenu(h.line, h.line.chars.find(c => laneOf(c) === h.laneIdx) || h.line.chars[0], t), e.clientX, e.clientY);

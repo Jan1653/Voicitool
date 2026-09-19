@@ -130,15 +130,19 @@ def count_decode_errors(path):
     return res.stderr.decode("utf8", "replace").lower().count("error")
 
 
-def encode_ogv(src, dst, duration, max_height, max_fps, quality, on_progress, audio=None, tag=None):
+def encode_ogv(src, dst, duration, max_height, max_fps, quality, on_progress, audio=None, tag=None, cuts=None):
     """Video für Choicer Voicer (Godot) als Ogg Theora + Vorbis kodieren.
 
     Konstante Bildrate (variable Bildraten mag der Godot-Player nicht).
     tag: Credit-Text für die Metadaten, None = keine Kennzeichnung.
+    cuts: rausgeschnittene Stellen [[start, ende], …] (Bild; den passenden Ton liefert audio schon geschnitten).
     """
     info = probe(src)
     target_fps = min(int(max_fps or 60), max(1, round(info["fps"] or 30)))
     vf = f"scale=-2:'trunc(min({int(max_height)},ih)/2)*2',fps={target_fps}"
+    if cuts:   # nach fps: feste Bildrate, dann Bilder in den Schnitten verwerfen und lückenlos neu nummerieren
+        drop = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in cuts)
+        vf += f",select='not({drop})',setpts=N/FRAME_RATE/TB"
     cmd = [FFMPEG, "-y", "-v", "error", "-i", str(src)]
     if audio and Path(audio).exists():
         cmd += ["-i", str(audio), "-map", "0:v:0", "-map", "1:a:0",

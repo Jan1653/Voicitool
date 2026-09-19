@@ -237,10 +237,12 @@ textarea { resize: vertical; }
 
 .video-wrap { position: relative; flex: 1; min-height: 160px; background: #000; border-radius: var(--radius); overflow: hidden; display: flex; align-items: center; justify-content: center; }
 .video-wrap video { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; cursor: pointer; }
-/* Untertitel unter dem Video (verdeckt nichts im Bild); Höhe bleibt stehen, damit nichts springt */
-.caption { flex: none; min-height: 34px; display: flex; flex-direction: column; gap: 3px; align-items: center; justify-content: center;
-  text-align: center; pointer-events: none; padding: 2px 8px; }
-.caption div { max-width: 100%; padding: 4px 12px; border-radius: 8px; font-size: 15px; background: var(--panel2);
+/* Untertitel unter dem Video (verdeckt nichts im Bild). Feste Höhe, damit das Video nie springt: eine Zeile passt genau
+   (20 px Zeilenhöhe + Innenabstand + Rand = 30 px), weitere Zeilen (zwei Figuren gleichzeitig, langer Text)
+   legen sich nach oben über den unteren Bildrand, statt das Video zu verkleinern */
+.caption { flex: none; height: 34px; box-sizing: border-box; display: flex; flex-direction: column; gap: 3px; align-items: center;
+  justify-content: flex-end; text-align: center; pointer-events: none; padding: 2px 8px; position: relative; z-index: 1; }
+.caption div { max-width: 100%; padding: 4px 12px; border-radius: 8px; font-size: 15px; line-height: 20px; background: var(--panel2);
   border: 1px solid var(--line); animation: cap-in .18s ease-out; }
 .caption b { margin-right: 7px; }
 @keyframes cap-in { from { opacity: 0; transform: translateY(3px); } }
@@ -456,6 +458,18 @@ legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
   border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 80px var(--shadow);
   padding: 22px 22px 18px; display: flex; flex-direction: column; gap: 12px; animation: dlg-pop .16s ease-out; }
 .dlg.wide { width: min(560px, 100%); }
+/* Instrumental von Hand ausrichten */
+.dlg.inst-align { width: min(920px, 100%); }
+.ia-legend { display: flex; gap: 18px; font-size: 12px; color: var(--muted); }
+.ia-legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.ia-legend .ia-ref::before { background: var(--muted); }
+.ia-legend .ia-own::before { background: var(--accent); }
+.ia-canvas { display: block; width: 100%; height: 220px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--line);
+  cursor: grab; touch-action: none; }
+.ia-pos { width: 100%; }
+.ia-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ia-row label { display: flex; align-items: center; gap: 8px; }
+.ia-off { width: 92px; }
 .dlg-head { display: flex; gap: 14px; align-items: flex-start; }
 .dlg-icon { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; font-size: 19px;
   background: color-mix(in srgb, var(--accent2) 16%, transparent); color: var(--accent); }
@@ -919,3 +933,24 @@ input[type=radio]:disabled { opacity: .5; cursor: default; }
 .one-voice > .ic { color: var(--accent); width: 18px; height: 18px; flex: none; }
 .one-voice > span { flex: 1; }
 .back-btn, .brand-text { white-space: nowrap; }
+
+/* Video schneiden: Knopf im Schnitt-Modus rot */
+.btn.cut-mode.on { background: color-mix(in srgb, #e5484d 24%, var(--panel2)); border-color: #e5484d; color: var(--text); }
+.btn.cut-mode .ic { color: #e5484d; }
+
+/* Text vorgeben (Eingang) */
+.reftext-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.reftext-row.on .reftext-btn { border-color: var(--accent); }
+.dlg.reftext-dlg { width: min(820px, 100%); max-height: calc(100vh - 40px); }
+.rt-search { display: flex; gap: 8px; }
+.rt-search .rt-q { flex: 1; }
+.rt-results { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow: auto; }
+.rt-hit { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 8px 10px; border-radius: 10px;
+  background: var(--panel2); border: 1px solid var(--line); color: var(--text); cursor: pointer; font: inherit; }
+.rt-hit:hover, .rt-hit.on { border-color: var(--accent); }
+.rt-src { flex: none; font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); }
+.rt-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rt-prev { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rt-label { display: flex; gap: 8px; align-items: baseline; font-weight: 600; font-size: 13px; }
+.rt-text { width: 100%; min-height: 180px; resize: vertical; box-sizing: border-box; background: var(--panel2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: 13px/1.45 inherit; }

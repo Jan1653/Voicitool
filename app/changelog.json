@@ -1,5 +1,19 @@
 [
   {
+    "build": 19,
+    "date": "2026-09-19",
+    "changes": [
+      "Provide text: before processing, give Voicitool the lyrics, the script or the subtitles. It searches subtitles in the video file, YouTube subtitles, LRCLIB, lyrics.ovh and Fandom episode transcripts, or you paste the text yourself. Voicitool then uses its spelling and fills in missing words.",
+      "Cut video: in the editor you can now cut parts out of the video. The original stays untouched, the cut parts are skipped while playing and left out of the pack.",
+      "Align the instrumental by hand: see the separated background and your own instrumental as two waveforms, drag yours into place and listen to one of them or both at once.",
+      "If you set your own instrumental, \"Background\" in the editor now plays that one.",
+      "The automatic instrumental alignment no longer gets thrown off by single wrong matches.",
+      "Where two lines touch, the middle of the edge moves both lines, left or right of it only one. The mouse pointer shows which.",
+      "Repeats can now be linked and unlinked by hand in the right-click menu.",
+      "Fixed: the video jumped by one pixel when the subtitle line changed, and character names were translated when switching the app language."
+    ]
+  },
+  {
     "build": 18,
     "date": "2026-09-19",
     "changes": [

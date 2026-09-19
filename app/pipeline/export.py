@@ -85,6 +85,12 @@ def _coverage_mask(lines, total, sr, ramp=0.04):
     return mask
 
 
+def _cut_array(x, sr, segs):
+    """Nur die bleibenden Teile eines Audio-Arrays (Zeilen = Samples) aneinanderhängen."""
+    parts = [x[int(a * sr):int(b * sr)] for a, b in segs]
+    return np.concatenate(parts) if parts else x[:0]
+
+
 def ensure_video(pid, report):
     """dub_video.ogv erzeugen (oder aus dem Cache holen) und auf Dekodierfehler prüfen."""
     d = project.project_dir(pid)
@@ -94,16 +100,30 @@ def ensure_video(pid, report):
     # "theora3": funktionierender Encoder (ältere Caches waren teils defekt); Kennzeichnung gehört zum Schlüssel
     plan = credit_plan(data)
     tag = plan["text"] if plan["files"] else None
-    key = hashlib.md5(json.dumps(["theora3", data["source"], opts["video_height"], opts["video_fps"],
-                                  opts["video_quality"], tag]).encode()).hexdigest()[:10]
+    cuts = project.normalize_cuts(data.get("cuts"), data["duration"])
+    key_parts = ["theora3", data["source"], opts["video_height"], opts["video_fps"], opts["video_quality"], tag]
+    if cuts:
+        key_parts.append(cuts)   # andere Schnitte = anderes Video
+    key = hashlib.md5(json.dumps(key_parts).encode()).hexdigest()[:10]
     cached = d / f"dub_video_{key}.ogv"
     if not cached.exists():
         for old in d.glob("dub_video_*.ogv"):
             old.unlink()
         part = d / "dub_video.part.ogv"
-        media.encode_ogv(d / data["source"], part, data["duration"], opts["video_height"], opts["video_fps"],
-                         opts["video_quality"], lambda p: report("Video kodieren", p, "dub_video.ogv erzeugen"),
-                         audio=d / "audio.wav", tag=tag)
+        audio, duration = d / "audio.wav", data["duration"]
+        if cuts:   # Ton für das geschnittene Video vorbereiten (Bild schneidet ffmpeg beim Kodieren)
+            mix, sr = sf.read(audio, dtype="float32", always_2d=True)
+            segs = project.keep_segments(cuts, data["duration"])
+            audio = d / "audio_geschnitten.wav"
+            sf.write(audio, _cut_array(mix, sr, segs), sr, subtype="PCM_16")
+            duration = sum(b - a for a, b in segs)
+        try:
+            media.encode_ogv(d / data["source"], part, duration, opts["video_height"], opts["video_fps"],
+                             opts["video_quality"], lambda p: report("Video kodieren", p, "dub_video.ogv erzeugen"),
+                             audio=audio, tag=tag, cuts=cuts)
+        finally:
+            if cuts:
+                (d / "audio_geschnitten.wav").unlink(missing_ok=True)
         report("Video prüfen", 0, "dub_video.ogv testweise abspielen")
         errors = media.count_decode_errors(part)
         if errors:
@@ -140,6 +160,19 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
         if master is not None and master is not ln:
             extra_times.setdefault(master["id"], []).append(ln["start"])
     lines = [ln for ln in all_lines if not (ln.get("repeat_of") and ln["repeat_of"] in by_id)]
+    # Video geschnitten: Zeilen in rausgeschnittenen Stellen fallen weg, angeschnittene behalten ihren längsten Teil,
+    # alle Zeitpunkte rücken um die Schnitte davor nach vorne
+    cuts = project.normalize_cuts(data.get("cuts"), data["duration"])
+    span = {}
+    for ln in lines:
+        part = project.kept_part(ln["start"], ln["end"], cuts) if cuts else (ln["start"], ln["end"])
+        if part:
+            span[ln["id"]] = part
+    cut_away = len(lines) - len(span)
+    lines = [ln for ln in lines if ln["id"] in span]
+    if cuts:
+        for mid, ts in list(extra_times.items()):
+            extra_times[mid] = [t for t in ts if project.kept_part(t, t + 0.1, cuts)]
     if not lines:
         raise RuntimeError("Keine Zeilen zum Exportieren.")
 
@@ -172,9 +205,12 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
     mono = clip_src.mean(axis=1)
 
     clips = []
+    if cut_away:
+        warnings.append(f"{cut_away} Zeilen liegen in rausgeschnittenen Stellen und fehlen im Pack.")
     for ln in lines:
-        a, b = int(ln["start"] * sr), int(min(ln["end"], ln["start"] + MAX_CLIP) * sr)
-        if ln["end"] - ln["start"] > MAX_CLIP:
+        s0, e0 = span[ln["id"]]
+        a, b = int(s0 * sr), int(min(e0, s0 + MAX_CLIP) * sr)
+        if e0 - s0 > MAX_CLIP:
             warnings.append(f"Zeile bei {ln['start']:.1f}s war länger als 60 s und wurde gekürzt.")
         clips.append(_fade(mono[a:b].copy(), sr))
     if opts["normalize"] == "clip":
@@ -209,7 +245,7 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
         ini = ([f"; {tag}"] if tag else []) + ["[data]", "", f"caption={_ini_str(ln['text'])}"]
         if image:
             ini.append(f"image={_ini_str(image)}")
-        times = sorted([ln["start"]] + extra_times.get(ln["id"], []))
+        times = sorted(project.cut_time(t, cuts) for t in [span[ln["id"]][0]] + extra_times.get(ln["id"], []))
         ini.append("dub_timestamps=[" + ", ".join(f"{t:.3f}" for t in times) + "]")
         ini.append("dub_characters=[" + ", ".join(_ini_str(n) for n in names) + "]")
         # Das Spiel liest die Zeilen-Dateien als .ini und als .txt (gleicher Inhalt), wählbar im Export
@@ -234,6 +270,8 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
         n = min(len(back), len(extra))
         mask = _coverage_mask(all_lines, n, bsr)
         back = back[:n] + extra[:n] * (1.0 - mask)[:, None]
+    if cuts:
+        back = _cut_array(back, bsr, project.keep_segments(cuts, data["duration"]))
     peak = np.abs(back).max()
     if peak > 0.99:
         back = back / peak * 0.99

@@ -162,5 +162,10 @@ def download(url, on_progress):
         file.replace(target)
         file = target
     on_progress(1.0, file.name)
+    try:   # Herkunft merken: YouTube-Untertitel und Suchvorschlag für „Text vorgeben“
+        from app.pipeline import textsources
+        textsources.remember_source(file.name, url, info.get("title") or file.stem)
+    except Exception:
+        pass
     return {"filename": file.name, "title": info.get("title") or file.stem,
             "duration": info.get("duration"), "mb": round(file.stat().st_size / 1e6)}

@@ -362,7 +362,7 @@
     <div class="video-wrap">
       <video id="video" preload="auto" playsinline></video>
     </div>
-    <div class="caption" id="caption" aria-live="polite"></div>
+    <div class="caption" id="caption" aria-live="polite" data-nolang></div>
     <audio id="audioVoc" preload="auto"></audio>
     <audio id="audioBack" preload="auto"></audio>
 
@@ -380,6 +380,7 @@
       </select>
       <label class="check follow-toggle" title="Liste folgt dem Video"><span class="switch sm"><input type="checkbox" id="follow" checked><span class="slider"></span></span><span>Mitlaufen</span></label>
       <div class="spacer"></div>
+      <button class="btn small cut-mode" id="btnCutMode" title="Video schneiden: in der Timeline die Stelle aufziehen, die aus dem Video fliegt. Das Original bleibt, Strg+Z macht es rückgängig."><i data-ic="scissors"></i><span>Video schneiden</span></button>
       <button class="icon-btn" id="btnZoomOut" title="Timeline herauszoomen (−)"><i data-ic="zoom-out"></i></button>
       <button class="icon-btn" id="btnZoomIn" title="Timeline hineinzoomen (+)"><i data-ic="zoom-in"></i></button>
     </div>
@@ -504,6 +505,7 @@
           <label class="radio"><input type="radio" name="backingSource" value="eigene" id="backingOwnRadio" disabled> Eigene Instrumental-Datei</label>
           <div class="row">
             <label class="btn small"><i data-ic="music"></i><span>Instrumental wählen</span><input type="file" id="instFile" accept="audio/*,video/*" hidden></label>
+            <button class="btn small" id="btnInstManual" hidden title="KI-Hintergrund und dein Instrumental nebeneinander sehen, anhören und selbst verschieben">Von Hand ausrichten</button>
             <button class="btn small danger" id="btnInstRemove" hidden>Entfernen</button>
           </div>
           <div class="url-row">
