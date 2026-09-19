@@ -25,6 +25,13 @@ HALLUCINATIONS = {
     "untertitel der deutschen welle", "vielen dank für die aufmerksamkeit", "vielen dank", "das war's",
     "subtitles by the amaraorg community", "thanks for watching", "thank you for watching", "bye",
 }
+# Kurze Floskeln, die Whisper auf Musik, Geräuschen oder Stille gern erfindet („Thank you.“ steht am Ende vieler
+# Videos in den Trainingsdaten). Echt gesprochen ist Whisper bei jedem Wort sicher, erfunden ist mindestens ein Wort
+# unsicher (25 Referenz-Packs: 14 von 15 „Thank you.“ erfunden, erstes Wort mit Sicherheit 0,07 bis 0,18;
+# „Tschüss“ am Videoende 0,45 bis 0,58). Laute wie „hmm“ oder „oh“ gehören nicht dazu, die sind oft echt.
+SUSPECT_PHRASES = {"thank you", "thanks", "thank you so much", "thank you very much", "you",
+                   "tschüss", "danke", "danke schön", "dankeschön"}
+SUSPECT_MIN_P = 0.6
 
 _models = {}
 _model_lock = threading.Lock()
@@ -184,6 +191,10 @@ def _drop_segment(seg):
     dur = seg.end - seg.start
     if text in HALLUCINATIONS and dur < 4.0:
         return True
+    if text in SUSPECT_PHRASES:
+        probs = [w.probability for w in (getattr(seg, "words", None) or [])]
+        if probs and min(probs) < SUSPECT_MIN_P:
+            return True
     if getattr(seg, "no_speech_prob", 0) > 0.85 and getattr(seg, "avg_logprob", 0) < -1.0:
         return True
     return False

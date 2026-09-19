@@ -1,5 +1,12 @@
 [
   {
+    "build": 18,
+    "date": "2026-09-19",
+    "changes": [
+      "Fewer invented lines: the speech recognition likes to \"hear\" \"Thank you.\" or \"Tschüss\" in music or silence. These are now dropped when the recognition itself is unsure about them. On 25 test videos this removed about a fifth of all invented lines."
+    ]
+  },
+  {
     "build": 17,
     "date": "2026-09-19",
     "changes": [
