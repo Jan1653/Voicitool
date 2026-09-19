@@ -1,5 +1,19 @@
 [
   {
+    "build": 21,
+    "date": "2026-09-19",
+    "changes": [
+      "Fixed: \"Background\" and \"Voices only\" could stay silent in the player while the PC was busy, for example during an export.",
+      "Background volume: a slider under Export → Background and right in the player sets how loud the background is. The exported pack uses the same setting.",
+      "New \"Background + voices\" button in the player when you use your own instrumental: your instrumental together with the separated voices.",
+      "Your own instrumental now gets the same loudness as the music in the video. Before, it could end up louder, especially in songs.",
+      "Align by hand: listening stays exactly in sync when you move the instrumental or zoom while it plays.",
+      "Downloads (videos, instrumentals, AI models) no longer wait for a running export.",
+      "The progress of processing, exports and downloads now also shows in the Voicitool icon in the taskbar.",
+      "When a video link can't be reached, the error now says so instead of talking about AI models."
+    ]
+  },
+  {
     "build": 20,
     "date": "2026-09-19",
     "changes": [

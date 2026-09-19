@@ -263,6 +263,12 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
     back, bsr = sf.read(own if use_own else d / "hintergrund.wav", dtype="float32", always_2d=True)
     if use_own:
         warnings.append("Hintergrund: eigene Instrumental-Datei verwendet.")
+    try:
+        vol = min(max(float(opts.get("backing_volume", 1.0)), 0.0), 2.0)
+    except (TypeError, ValueError):
+        vol = 1.0
+    if abs(vol - 1.0) > 0.005:   # Lautstärke des Hintergrunds (Export, auch im Player zu hören)
+        back = back * vol
     if opts.get("keep_unused_voices", True):
         # Stimmen ohne Zeile beimischen, bei eigener Instrumental-Datei aus der Differenz (sauberer)
         diff = d / "stimmen_diff.wav"

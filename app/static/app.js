@@ -569,6 +569,22 @@ function renderJobBox(j) {
     $('#jobLabel').title = run.map(r => `${r.label}: ${r.step} ${Math.round(jobProgress(r).pct * 100)} %`).join('\n');
     $('#jobBar').style.width = `${(pr.pct * 100).toFixed(1)}%`;
   }
+  taskbarProgress(run);
+}
+/* Fortschritt auch im Taskleisten-Symbol (nur im Voicitool-Fenster, nicht im Browser): Mittel aller laufenden Vorgänge */
+let taskbarLast = null;
+function taskbarProgress(run) {
+  const api = window.pywebview?.api;
+  if (!api?.taskbar_progress) return;
+  let v = null;
+  if (run.length) {
+    const ps = run.map(r => jobProgress(r).pct);
+    v = ps.every(p => !p) ? -1 : ps.reduce((a, b) => a + b, 0) / ps.length;
+  }
+  const key = v === null ? 'aus' : v < 0 ? 'unbestimmt' : String(Math.round(v * 200));
+  if (key === taskbarLast) return;
+  taskbarLast = key;
+  api.taskbar_progress(v).catch(() => {});
 }
 $('#jobCancel').onclick = () => { if (shownJob) cancelJob(shownJob.id, shownJob.label); };
 
@@ -1992,7 +2008,7 @@ async function renameProject(name) {
   // Medien freigeben, damit der Projektordner umbenannt werden kann
   const t = video.currentTime;
   video.pause();
-  [video, ...Object.values(audios)].forEach(m => { m.removeAttribute('src'); m.load(); });
+  [video, ...allAudios()].forEach(m => { m.removeAttribute('src'); m.load(); });
   await new Promise(r => setTimeout(r, 300));
   try {
     const r = await api('POST', `/api/projects/${encodeURIComponent(S.pid)}/rename`, { name });
@@ -2017,6 +2033,7 @@ $('#projTitle').onclick = async () => {
 // „Hintergrund“ im Editor: das eigene Instrumental, wenn es als Hintergrund gewählt ist, sonst die KI-Trennung
 const ownBacking = () => !!(S.p?.instrumental && (S.p.export?.backing_source || 'auto') === 'eigene');
 function refreshBackingAudio() {
+  refreshInstAudio();
   const a = $('#audioBack');
   const want = ownBacking() ? 'instrumental.ogg' : 'hintergrund.ogg';
   const ver = want === 'instrumental.ogg' ? `?v=${encodeURIComponent(S.p.instrumental?.versatz ?? '')}` : '';
@@ -2026,16 +2043,69 @@ function refreshBackingAudio() {
   a.src = mediaUrl(want) + ver;
   if (S.audioMode === 'hinter') setAudioMode('hinter');
 }
-$('#audioBack').addEventListener('error', e => {   // ältere Projekte haben nur instrumental.wav
-  const a = e.target;
-  if (a.dataset.file === 'instrumental.ogg') { a.dataset.file = 'instrumental.wav'; a.src = mediaUrl('instrumental.wav'); }
-});
+/* „Hintergrund + Stimmen“: das eigene Instrumental (immer, auch wenn im Export die KI-Trennung gewählt ist)
+   zusammen mit den getrennten Stimmen. Den Knopf gibt es nur mit eigenem Instrumental. */
+function refreshInstAudio() {
+  const a = $('#audioInst'), has = !!S.p?.instrumental;
+  const want = has ? mediaUrl('instrumental.ogg') + `?v=${encodeURIComponent(S.p.instrumental?.versatz ?? '')}` : '';
+  $('#audioMode [data-mode=mix]').hidden = !has;
+  if (a.dataset.url !== want) {
+    a.dataset.url = want;
+    if (want) a.src = want; else { a.removeAttribute('src'); a.load(); }
+  }
+  if (!has && S.audioMode === 'mix') setAudioMode('orig');
+  else if (S.audioMode === 'mix') setAudioMode('mix');
+}
+for (const id of ['#audioBack', '#audioInst']) {
+  $(id).addEventListener('error', e => {   // ältere Projekte haben nur instrumental.wav
+    const a = e.target;
+    if (!/instrumental\.ogg/.test(a.src)) return;
+    a.dataset.file = 'instrumental.wav';
+    a.src = mediaUrl('instrumental.wav');
+    if (activeAudios().includes(a) && !video.paused) { a.currentTime = video.currentTime; a.play().catch(() => {}); }
+  });
+}
+
+/* Lautstärke des Hintergrunds (0 bis 200 %): im Player für „Hintergrund“ und „Hintergrund + Stimmen“, im Export
+   für den Backing-Track. Über 100 % geht es nur mit Web Audio, das wird erst dann eingeschaltet. */
+const backingVolume = () => clamp(+(S.p?.export?.backing_volume ?? 1) || 0, 0, 2);
+let backCtx = null;
+const backGain = new Map();
+function applyBackingVolume() {
+  const v = backingVolume();
+  for (const a of [$('#audioBack'), $('#audioInst')]) {
+    if (v <= 1 && !backGain.has(a)) { a.volume = v; continue; }
+    try {
+      if (!backCtx) backCtx = new AudioContext();
+      if (!backGain.has(a)) {
+        const g = backCtx.createGain();
+        backCtx.createMediaElementSource(a).connect(g).connect(backCtx.destination);
+        backGain.set(a, g);
+      }
+      a.volume = 1;
+      backGain.get(a).gain.value = v;
+    } catch { a.volume = Math.min(1, v); }
+  }
+  if (backCtx?.state === 'suspended') backCtx.resume().catch(() => {});
+  const pct = `${Math.round(v * 100)} %`;
+  $('#backVol').value = String(Math.round(v * 100)); $('#exBackVol').value = String(Math.round(v * 100));
+  $$('.back-vol-val').forEach(el => (el.textContent = pct));
+}
+function setBackingVolume(pct) {
+  if (!S.p) return;
+  S.p.export.backing_volume = clamp(Math.round(+pct) / 100, 0, 2);
+  applyBackingVolume();
+  scheduleSave();
+}
+$('#backVol').addEventListener('input', e => setBackingVolume(e.target.value));
 
 function loadMedia(t = 0) {
   video.src = mediaUrl(S.p.preview || S.p.source);
   $('#audioVoc').src = mediaUrl('stimmen.ogg');
   $('#audioBack').dataset.file = '';
+  $('#audioInst').dataset.url = '';
   refreshBackingAudio();
+  applyBackingVolume();
   if (t) video.addEventListener('loadedmetadata', () => { video.currentTime = t; }, { once: true });
   setAudioMode(S.audioMode || 'orig');
 }
@@ -2079,24 +2149,55 @@ window.addEventListener('beforeunload', flushSave);
 
 /* ------------------------------------------------------------ Video & Audio */
 const video = $('#video');
-const audios = { stimmen: $('#audioVoc'), hinter: $('#audioBack') };
+const AUDIO_MODES = { stimmen: ['#audioVoc'], hinter: ['#audioBack'], mix: ['#audioVoc', '#audioInst'] };
+const allAudios = () => [$('#audioVoc'), $('#audioBack'), $('#audioInst')];
+const activeAudios = () => (AUDIO_MODES[S.audioMode] || []).map(id => $(id));
 
 function setAudioMode(mode) {
   S.audioMode = mode;
   $$('#audioMode button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  $('#backVolBox').hidden = !(mode === 'hinter' || mode === 'mix');
   video.muted = mode !== 'orig';
-  Object.entries(audios).forEach(([k, a]) => {
-    if (k === mode) { a.currentTime = video.currentTime; a.playbackRate = video.playbackRate; if (!video.paused) a.play().catch(() => {}); }
+  const active = activeAudios();
+  allAudios().forEach(a => {
+    if (active.includes(a)) { a.currentTime = video.currentTime; a.playbackRate = video.playbackRate; if (!video.paused) a.play().catch(() => {}); }
     else a.pause();
   });
 }
 $$('#audioMode button').forEach(b => b.onclick = () => setAudioMode(b.dataset.mode));
-video.addEventListener('play', () => { const a = audios[S.audioMode]; if (a) { a.currentTime = video.currentTime; a.play().catch(() => {}); } $('#btnPlay').innerHTML = ic('pause'); });
-video.addEventListener('pause', () => { Object.values(audios).forEach(a => a.pause()); $('#btnPlay').innerHTML = ic('play'); });
-video.addEventListener('seeked', () => { const a = audios[S.audioMode]; if (a) a.currentTime = video.currentTime; });
+video.addEventListener('play', () => {
+  if (backCtx?.state === 'suspended') backCtx.resume().catch(() => {});
+  activeAudios().forEach(a => { a.currentTime = video.currentTime; a._seekAt = performance.now(); a.play().catch(() => {}); });
+  $('#btnPlay').innerHTML = ic('pause');
+});
+video.addEventListener('pause', () => { allAudios().forEach(a => a.pause()); $('#btnPlay').innerHTML = ic('play'); });
+video.addEventListener('seeked', () => activeAudios().forEach(a => { a.currentTime = video.currentTime; a._seekAt = performance.now(); }));
+allAudios().forEach(a => a.addEventListener('seeked', () => {   // wie lange ein Sprung dauert: beim nächsten so weit vorausspringen
+  if (a._seekAt) a._lag = clamp((performance.now() - a._seekAt) / 1000, 0, 1.5);
+  a._seekAt = 0;
+}));
+
+/* Tonspur dem Video nachführen. Früher wurde bei mehr als 0,12 s Abstand in jedem Bild neu gesprungen: Dauert ein
+   Sprung länger (PC ausgelastet, z. B. während eines Exports), sprang die Spur endlos und blieb stumm. Jetzt: kleine
+   Abstände über die Geschwindigkeit ausgleichen, große mit einem Sprung, der die gemessene Sprungdauer einrechnet. */
+function syncAudio(a, t) {
+  if (a.seeking || a.readyState < 2) return;
+  const d = a.currentTime - t, rate = video.playbackRate;
+  if (Math.abs(d) > 0.3) {
+    const now = performance.now();
+    if (now - (a._jumpAt || 0) < 800) return;
+    a._jumpAt = a._seekAt = now;
+    a.playbackRate = rate;
+    a.currentTime = t + (a._lag || 0.05) * rate;
+  } else if (Math.abs(d) > 0.04) {
+    a.playbackRate = rate * (d > 0 ? 0.96 : 1.04);
+  } else if (a.playbackRate !== rate) {
+    a.playbackRate = rate;
+  }
+}
 video.addEventListener('click', () => togglePlay());
 $('#btnPlay').onclick = () => togglePlay();
-$('#rate').onchange = e => { video.playbackRate = +e.target.value; Object.values(audios).forEach(a => (a.playbackRate = +e.target.value)); };
+$('#rate').onchange = e => { video.playbackRate = +e.target.value; allAudios().forEach(a => (a.playbackRate = +e.target.value)); };
 
 function togglePlay() { S.playUntil = null; video.paused ? startVideo() : video.pause(); }
 function seek(t) { video.currentTime = clamp(t, 0, video.duration || S.p?.duration || 0); }
@@ -2162,8 +2263,7 @@ function tick() {
     const cut = !video.paused && cutAt(t);
     if (cut) { video.currentTime = Math.min(S.p.duration, cut[1] + 0.01); t = video.currentTime; }   // über Schnitte springen
     if (S.playUntil !== null && t >= S.playUntil) { video.pause(); S.playUntil = null; }
-    const a = audios[S.audioMode];
-    if (a && !video.paused && Math.abs(a.currentTime - t) > 0.12) a.currentTime = t;
+    if (!video.paused) activeAudios().forEach(a => syncAudio(a, t));
     $('#timeLabel').textContent = `${fmt(t)} / ${fmt(S.p.duration, false)}`;
     updateActive(t);
     if (!video.paused) followView(t);
@@ -2939,6 +3039,7 @@ function fillExportForm() {
   $('#exNormalize').value = x.normalize; $('#exImageMode').value = x.image_mode;
   $('#exLineFormat').value = x.line_format === 'txt' ? 'txt' : 'ini';
   $('#exKeepVoices').checked = !!x.keep_unused_voices;
+  applyBackingVolume();
   $('#exHeight').value = String(x.video_height); $('#exFps').value = String(x.video_fps);
   $('#exQuality').value = x.video_quality; $('#exQualityVal').textContent = x.video_quality;
   $('#exIconImg').src = p.icon ? imgUrl(p.icon) : '';
@@ -2988,6 +3089,8 @@ function readExportForm() {
   x.normalize = $('#exNormalize').value; x.image_mode = $('#exImageMode').value;
   x.line_format = $('#exLineFormat').value;
   x.keep_unused_voices = $('#exKeepVoices').checked;
+  x.backing_volume = clamp(+$('#exBackVol').value / 100, 0, 2);
+  applyBackingVolume();
   x.video_height = +$('#exHeight').value; x.video_fps = +$('#exFps').value; x.video_quality = +$('#exQuality').value;
   $('#exQualityVal').textContent = x.video_quality;
   scheduleSave();
@@ -3124,8 +3227,17 @@ async function openInstAligner() {
   document.body.appendChild(ov);
   const box = $('.inst-align', ov), cvA = $('.ia-canvas', ov), pos = $('.ia-pos', ov), off = $('.ia-off', ov);
   pos.max = Math.max(0, total - view.len).toFixed(1);
-  const aRef = new Audio(mediaUrl('hintergrund.ogg')), aOwn = new Audio(mediaUrl(W.source));
-  aOwn.playbackRate = tempo;
+  // Anhören über Web Audio: beide Spuren liegen dekodiert im Speicher und starten auf die Probe genau zusammen.
+  // Mit <audio> sprang das MP3 bei jedem Neustart nur ungefähr an die Stelle, danach lief es hörbar versetzt.
+  const actx = new AudioContext();
+  const gRef = actx.createGain(), gOwn = actx.createGain();
+  gRef.connect(actx.destination); gOwn.connect(actx.destination);
+  gOwn.gain.value = W.gain || 1;   // so laut, wie es danach als Hintergrund klingt
+  const loadBuf = which => fetch(`/api/projects/${encodeURIComponent(S.pid)}/instrumental/preview/${which}`)
+    .then(r => { if (!r.ok) throw new Error(tf('Ton konnte nicht geladen werden.')); return r.arrayBuffer(); })
+    .then(b => actx.decodeAudioData(b));
+  const bufs = Promise.all([loadBuf('ref'), loadBuf('own')]);
+  bufs.catch(e => toast(e.message, true));
 
   // jede Spur nach ihrer eigenen Dynamik zeichnen (leiseste 25 % unten, lauteste Stelle oben): Schläge und Pausen
   // treten hervor, auch wenn die Musik durchgehend laut ist
@@ -3168,20 +3280,22 @@ async function openInstAligner() {
       c.fillStyle = '#fff'; c.fillRect(x, 0, 2, h);
     }
   }
-  const sync = () => { off.value = offset.toFixed(3); pos.value = view.start.toFixed(1); draw(); if (playing) startPlay(playing.now()); };
+  const sync = () => { off.value = offset.toFixed(3); pos.value = view.start.toFixed(1); draw(); };
+  const moved = () => { sync(); if (playing) startPlay(playing.now()); };   // neuer Versatz: genau an derselben Stelle weiter
   sync();
 
   let drag = null;
   cvA.addEventListener('pointerdown', e => { drag = { x: e.clientX, off: offset }; cvA.setPointerCapture(e.pointerId); });
   cvA.addEventListener('pointermove', e => {
     cvA.style.cursor = drag ? 'grabbing' : 'grab';
-    if (!drag) return;
+    if (!drag || !cvA.clientWidth) return;
     offset = drag.off - (e.clientX - drag.x) / cvA.clientWidth * view.len;   // nach rechts ziehen = Instrumental später
     off.value = offset.toFixed(3); draw();
   });
-  cvA.addEventListener('pointerup', () => { if (drag) { drag = null; sync(); } });
+  cvA.addEventListener('pointerup', () => { if (drag) { const changed = drag.off !== offset; drag = null; changed ? moved() : sync(); } });
   cvA.addEventListener('wheel', e => {
     e.preventDefault();
+    if (!cvA.clientWidth) return;   // Fenster geht gerade erst auf
     const t = view.start + e.offsetX / cvA.clientWidth * view.len;
     view.len = clamp(view.len * (e.deltaY > 0 ? 1.25 : 0.8), 2, Math.max(2, total));
     view.start = clamp(t - e.offsetX / cvA.clientWidth * view.len, 0, Math.max(0, total - view.len));
@@ -3189,29 +3303,40 @@ async function openInstAligner() {
     sync();
   }, { passive: false });
   pos.oninput = () => { view.start = +pos.value; draw(); };
-  off.onchange = () => { const v = parseFloat(String(off.value).replace(',', '.')); if (Number.isFinite(v)) offset = v; sync(); };
-  $$('[data-d]', box).forEach(b => b.onclick = () => { offset = Math.round((offset + +b.dataset.d) * 1000) / 1000; sync(); });
+  off.onchange = () => { const v = parseFloat(String(off.value).replace(',', '.')); if (Number.isFinite(v)) offset = v; moved(); };
+  $$('[data-d]', box).forEach(b => b.onclick = () => { offset = Math.round((offset + +b.dataset.d) * 1000) / 1000; moved(); });
   $$('.ia-mode button', box).forEach(b => b.onclick = () => {
     mode = b.dataset.m;
     $$('.ia-mode button', box).forEach(x => x.classList.toggle('on', x === b));
     if (playing) startPlay(playing.now());
   });
 
-  let own0 = null, raf = 0;
+  let srcs = [], raf = 0, tok = 0;
+  const stopSrcs = () => { srcs.forEach(s => { try { s.stop(); } catch { /* schon zu Ende */ } }); srcs = []; };
   function stopPlay() {
-    aRef.pause(); aOwn.pause(); clearTimeout(own0); cancelAnimationFrame(raf);
+    tok++; stopSrcs(); cancelAnimationFrame(raf);
     playing = null; $('.ia-play', box).innerHTML = `${ic('play')}<span>${esc(tf('Anhören'))}</span>`; draw();
   }
-  function startPlay(t0) {
-    aRef.pause(); aOwn.pause(); clearTimeout(own0);
-    const began = performance.now();
-    playing = { now: () => t0 + (performance.now() - began) / 1000 };
-    if (mode !== 'own') { aRef.currentTime = t0; aRef.play().catch(() => {}); }
+  async function startPlay(t0) {
+    const my = ++tok;
+    if (!srcs.length && !playing) $('.ia-play', box).innerHTML = `${ic('hourglass')}<span>${esc(tf('Lädt …'))}</span>`;
+    let bRef, bOwn;
+    try { [bRef, bOwn] = await bufs; if (actx.state === 'suspended') await actx.resume(); } catch { if (my === tok) stopPlay(); return; }
+    if (my !== tok) return;   // inzwischen neu gestartet oder gestoppt
+    stopSrcs();
+    const when = actx.currentTime + 0.05;
+    const add = (buf, gain, at, from, rate) => {
+      const s = actx.createBufferSource();
+      s.buffer = buf; s.playbackRate.value = rate; s.connect(gain); s.start(at, from); srcs.push(s);
+    };
+    if (mode !== 'own' && t0 < bRef.duration) add(bRef, gRef, when, t0, 1);
     if (mode !== 'ref') {
-      const ot = (t0 + offset) * tempo;
-      if (ot >= 0) { aOwn.currentTime = ot; aOwn.play().catch(() => {}); }
-      else own0 = setTimeout(() => { aOwn.currentTime = 0; aOwn.play().catch(() => {}); }, -ot / tempo * 1000);
+      const ot = (t0 + offset) * tempo;   // Stelle im eigenen Instrumental
+      if (ot < 0) add(bOwn, gOwn, when - ot / tempo, 0, tempo);
+      else if (ot < bOwn.duration) add(bOwn, gOwn, when, ot, tempo);
     }
+    playing = { now: () => t0 + Math.max(0, actx.currentTime - when) };
+    cancelAnimationFrame(raf);
     $('.ia-play', box).innerHTML = `${ic('stop')}<span>${esc(tf('Stopp'))}</span>`;
     const loop = () => {
       if (!playing) return;
@@ -3225,7 +3350,7 @@ async function openInstAligner() {
   }
   $('.ia-play', box).onclick = () => (playing ? stopPlay() : startPlay(view.start));
 
-  const close = () => { stopPlay(); aRef.src = ''; aOwn.src = ''; ov.remove(); document.removeEventListener('keydown', onKey, true); };
+  const close = () => { stopPlay(); actx.close().catch(() => {}); ov.remove(); document.removeEventListener('keydown', onKey, true); };
   const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
   document.addEventListener('keydown', onKey, true);
   $('.ia-cancel', box).onclick = close;

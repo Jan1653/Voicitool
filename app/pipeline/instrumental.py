@@ -156,6 +156,36 @@ def _frames(x, fps=ENV_FPS, sr=44100):
     return x[: n * hop].reshape(n, hop)
 
 
+def _level_factor(project_dir, inst, sr):
+    """Faktor, mit dem das Instrumental so laut wird wie der KI-Hintergrund, also wie die Musik im Video.
+
+    Gemessen über alle Stellen, an denen beide klingen. Früher war der ganze Mix samt Gesang das Maß: Bei Liedern
+    gibt es kaum gesangsfreie Stellen, dann wurde das Instrumental hörbar lauter als die Musik im Video."""
+    ref, rsr = sf.read(project_dir / "hintergrund.wav", dtype="float32", always_2d=True)
+    a = np.sqrt((_frames(ref.mean(axis=1), sr=rsr) ** 2).mean(axis=1))
+    b = np.sqrt((_frames(inst.mean(axis=1), sr=sr) ** 2).mean(axis=1))
+    n = min(len(a), len(b))
+    a, b = a[:n], b[:n]
+    on = (a > a.max() * 0.03) & (b > b.max() * 0.03)   # beide höchstens 30 dB unter ihrer lautesten Stelle
+    if on.sum() < 50:
+        return 1.0
+    return float(np.clip(np.sqrt(np.mean(a[on] ** 2) / (np.mean(b[on] ** 2) + 1e-12)), 0.2, 5.0))
+
+
+def _match_level(project_dir, path):
+    """Datei auf die Lautstärke des KI-Hintergrunds bringen. -> angewandter Faktor"""
+    x, sr = sf.read(path, dtype="float32", always_2d=True)
+    factor = _level_factor(project_dir, x, sr)
+    if abs(factor - 1.0) > 0.02:
+        x = x * factor
+        peak = float(np.abs(x).max())
+        if peak > 0.99:   # nicht übersteuern
+            factor *= 0.99 / peak
+            x = x * (0.99 / peak)
+        sf.write(path, x, sr, subtype="PCM_16")
+    return factor
+
+
 def align(project_dir, source, on_progress=None):
     """Instrumental ausrichten -> instrumental.wav (+ Bericht). Gibt den Bericht zurück."""
     d = project_dir
@@ -191,11 +221,7 @@ def align(project_dir, source, on_progress=None):
         fr_mix, fr_inst = _frames(a.mean(axis=1), sr=sr), _frames(b.mean(axis=1), sr=sr)
         quiet = _nonvocal_mask(d, min(len(fr_mix), len(fr_inst)))
         fr_mix, fr_inst = fr_mix[:len(quiet)], fr_inst[:len(quiet)]
-        factor = 1.0
-        if quiet.sum() > 10:
-            rms_mix = float(np.sqrt(np.mean(fr_mix[quiet] ** 2)))
-            rms_inst = float(np.sqrt(np.mean(fr_inst[quiet] ** 2))) + 1e-9
-            factor = min(max(rms_mix / rms_inst, 0.2), 5.0)
+        factor = _level_factor(d, b, sr)   # so laut wie die Musik im Video (KI-Hintergrund)
         if abs(factor - 1.0) > 0.02:
             b = b * factor
             sf.write(out, b, sr, subtype="PCM_16")
@@ -293,7 +319,24 @@ def waves(project_dir, fps=50):
     ref = media.load_mono(d / "hintergrund.wav")
     own = media.load_mono(src)
     return {"fps": fps, "ref": _env_list(ref, fps), "own": _env_list(own, fps), "source": src.name,
-            "offset": info.get("versatz", 0.0), "slope": info.get("tempo_slope", 0.0)}
+            "offset": info.get("versatz", 0.0), "slope": info.get("tempo_slope", 0.0),
+            "gain": info.get("lautstaerke", 1.0)}
+
+
+PREVIEW_SR = 24000   # Hörfassungen fürs Ausrichten: mono, genau springbar (MP3 springt im Browser nur ungefähr)
+
+
+def preview(project_dir, which):
+    """WAV-Hörfassung für das Ausrichten von Hand: 'ref' = KI-Hintergrund, 'own' = eigenes Instrumental (roh)."""
+    d = project_dir
+    src = d / "hintergrund.wav" if which == "ref" else source_file(d)
+    if src is None or not src.exists():
+        raise RuntimeError("Es ist keine eigene Instrumental-Datei gesetzt.")
+    dst = d / f"ausrichten_{which}.wav"
+    if not dst.exists() or dst.stat().st_mtime < src.stat().st_mtime:
+        media.run([media.FFMPEG, "-y", "-v", "error", "-i", str(src), "-vn", "-ac", "1", "-ar", str(PREVIEW_SR),
+                   "-c:a", "pcm_s16le", str(dst)])
+    return dst
 
 
 def manual(project_dir, offset):
@@ -308,17 +351,20 @@ def manual(project_dir, offset):
         slope = 0.0   # die Messung war unbrauchbar, dann auch ihr Tempo nicht übernehmen
     target_len = sf.info(d / "audio.wav").duration
     out = d / "instrumental.wav"
-    _apply(src, out, float(offset), slope, float(info.get("lautstaerke", 1.0)), target_len)
+    gain = float(info.get("lautstaerke", 1.0))
+    _apply(src, out, float(offset), slope, gain, target_len)
+    gain *= _match_level(d, out)   # so laut wie die Musik im Video
     media.encode_opus(out, d / "instrumental.ogg")
     (d / "stimmen_diff.wav").unlink(missing_ok=True)   # passte zur alten Ausrichtung
-    info.update({"versatz": round(float(offset), 3), "tempo_slope": slope, "bewertung": "von Hand",
+    info.update({"versatz": round(float(offset), 3), "tempo_slope": slope, "lautstaerke": round(gain, 3), "bewertung": "von Hand",
                  "hinweis": "Von Hand ausgerichtet.", "stimmen_moeglich": False})
     (d / "instrumental.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf8")
     return info
 
 
 def remove(project_dir):
-    for name in ("instrumental.wav", "instrumental.ogg", "instrumental.json", "stimmen_diff.wav"):
+    for name in ("instrumental.wav", "instrumental.ogg", "instrumental.json", "stimmen_diff.wav", "ausrichten_ref.wav",
+                 "ausrichten_own.wav"):
         (project_dir / name).unlink(missing_ok=True)
     for f in project_dir.glob("instrumental_quelle.*"):
         f.unlink(missing_ok=True)

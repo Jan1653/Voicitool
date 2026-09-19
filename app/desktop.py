@@ -1,6 +1,7 @@
 """Voicitool als eigenes Fenster (pywebview/Edge WebView2) statt im Browser."""
 import json
 import os
+import queue
 import sys
 import threading
 import time
@@ -173,6 +174,113 @@ class App:
         time.sleep(0.5)
 
 
+class Taskbar:
+    """Fortschritt im Taskleisten-Symbol (ITaskbarList3), wie beim Download im Browser.
+
+    COM über ctypes in einem eigenen Thread; set(): None = aus, < 0 = läuft ohne bekannten Fortschritt, 0..1 = Anteil."""
+    CLSID = "{56FDF344-FD6D-11d0-958A-006097C9A090}"
+    IID = "{EA1AFB91-9E28-4B86-90E9-9E9F8A5EEFAF}"
+
+    def __init__(self, title):
+        self.title = title
+        self.q = queue.Queue()
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def set(self, frac):
+        self.q.put(frac)
+
+    def _run(self):
+        import ctypes
+        from ctypes import wintypes
+        try:
+            ole32, user32 = ctypes.windll.ole32, ctypes.windll.user32
+            ole32.CoInitializeEx(None, 2)   # COINIT_APARTMENTTHREADED
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("d1", ctypes.c_ulong), ("d2", ctypes.c_ushort), ("d3", ctypes.c_ushort),
+                            ("d4", ctypes.c_ubyte * 8)]
+
+            def guid(s):
+                g = GUID()
+                ole32.CLSIDFromString(ctypes.c_wchar_p(s), ctypes.byref(g))
+                return g
+
+            obj = ctypes.c_void_p()
+            if ole32.CoCreateInstance(ctypes.byref(guid(self.CLSID)), None, 1, ctypes.byref(guid(self.IID)),
+                                      ctypes.byref(obj)) != 0 or not obj:
+                return
+            vtbl = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+
+            def method(i, *args):
+                return ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *args)(vtbl[i])
+
+            method(3)(obj)   # HrInit
+            set_value = method(9, wintypes.HWND, ctypes.c_ulonglong, ctypes.c_ulonglong)
+            set_state = method(10, wintypes.HWND, ctypes.c_int)
+        except Exception:
+            traceback.print_exc()
+            return
+        hwnd, last = 0, "aus"
+        while True:
+            frac = self.q.get()
+            while not self.q.empty():   # nur der neueste Stand zählt
+                frac = self.q.get_nowait()
+            try:
+                if not hwnd or not user32.IsWindow(hwnd):
+                    hwnd = self._own_window(user32)
+                    if not hwnd:
+                        continue
+                if frac is None:
+                    if last != "aus":
+                        set_state(obj, hwnd, 0)   # TBPF_NOPROGRESS
+                    last = "aus"
+                elif frac < 0:
+                    set_state(obj, hwnd, 1)   # TBPF_INDETERMINATE
+                    last = "unbestimmt"
+                else:
+                    if last != "normal":
+                        set_state(obj, hwnd, 2)   # TBPF_NORMAL
+                    set_value(obj, hwnd, int(min(max(frac, 0.0), 1.0) * 1000), 1000)
+                    last = "normal"
+            except Exception:
+                traceback.print_exc()
+
+
+    def _own_window(self, user32):
+        """Sichtbares Fenster dieses Prozesses mit dem Titel (nicht die gleichnamige Konsole)."""
+        import ctypes
+        from ctypes import wintypes
+        found = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def cb(h, _):
+            pid = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+            if pid.value == os.getpid() and user32.IsWindowVisible(h):
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(h, buf, 256)
+                cls = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(h, cls, 256)
+                if buf.value == self.title and cls.value != "ConsoleWindowClass":
+                    found.append(h)
+                    return False
+            return True
+
+        user32.EnumWindows(cb, 0)
+        return found[0] if found else 0
+
+
+class Bridge:
+    """Für die Oberfläche als window.pywebview.api.* (Attribute mit _ sieht pywebview nicht)."""
+
+    def __init__(self, taskbar):
+        self._taskbar = taskbar
+
+    def taskbar_progress(self, frac=None):
+        self._taskbar.set(None if frac is None else float(frac))
+        return True
+
+
 def ui_query():
     """Sprache für die Oberfläche: lang = eigene Wahl (falls schon getroffen), sys = Windows-Sprache."""
     q = {"sys": config.system_lang()}
@@ -217,7 +325,7 @@ def main():
         traceback.print_exc()
     app.window = webview.create_window(
         config.APP_NAME, html=SPLASH, width=1480, height=920,
-        min_size=(1040, 660), background_color=BG, text_select=True)
+        min_size=(1040, 660), background_color=BG, text_select=True, js_api=Bridge(Taskbar(config.APP_NAME)))
     app.window.events.closing += app.on_closing
     webview.start(app.wait_and_load, gui="edgechromium", private_mode=False,
                   storage_path=str(config.DATA_DIR / "fenster"), icon=str(ICON) if ICON.exists() else None)

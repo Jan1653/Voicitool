@@ -248,6 +248,14 @@ textarea { resize: vertical; }
 @keyframes cap-in { from { opacity: 0; transform: translateY(3px); } }
 
 .transport { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.back-vol { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.back-vol[hidden] { display: none; }
+.back-vol input { width: 90px; }
+.back-vol-val { min-width: 3.4em; font-variant-numeric: tabular-nums; }
+.back-vol-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.back-vol-row input { flex: 1; min-width: 120px; max-width: 260px; }
+#audioMode button[hidden] { display: none; }
+#audioMode button:has(+ button[hidden]) { border-right: 0; }
 .time { font-variant-numeric: tabular-nums; min-width: 130px; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg button { background: var(--panel2); border: 0; padding: 5px 10px; cursor: pointer; border-right: 1px solid var(--line); }

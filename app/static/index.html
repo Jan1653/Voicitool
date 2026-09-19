@@ -365,6 +365,7 @@
     <div class="caption" id="caption" aria-live="polite" data-nolang></div>
     <audio id="audioVoc" preload="auto"></audio>
     <audio id="audioBack" preload="auto"></audio>
+    <audio id="audioInst" preload="auto"></audio>
 
     <div class="transport">
       <button class="icon-btn" id="btnPlay" title="Abspielen/Pause (Leertaste)"><i data-ic="play"></i></button>
@@ -373,7 +374,9 @@
         <button data-mode="orig" class="on">Original</button>
         <button data-mode="stimmen">Nur Stimmen</button>
         <button data-mode="hinter">Hintergrund</button>
+        <button data-mode="mix" hidden title="Dein eigenes Instrumental zusammen mit den getrennten Stimmen">Hintergrund + Stimmen</button>
       </div>
+      <label class="back-vol" id="backVolBox" hidden title="Lautstärke des Hintergrunds. Gilt auch für den Export."><i data-ic="sound"></i><input type="range" id="backVol" min="0" max="200" step="5" aria-label="Lautstärke des Hintergrunds"><span class="back-vol-val" data-nolang>100 %</span></label>
       <select id="rate" title="Geschwindigkeit">
         <option value="0.5">0,5×</option><option value="0.75">0,75×</option>
         <option value="1" selected>1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option>
@@ -513,6 +516,8 @@
             <button class="btn small" id="btnInstUrl">Laden</button>
           </div>
           <div id="instReport" class="small muted">Hast du die offizielle Instrumental-Version? Dann wird sie automatisch auf das Video ausgerichtet und als Hintergrund genutzt.</div>
+          <label class="back-vol-row" title="Auch im Player zu hören (Hintergrund, Hintergrund + Stimmen)">Lautstärke des Hintergrunds
+            <input type="range" id="exBackVol" min="0" max="200" step="5"><span class="back-vol-val" data-nolang>100 %</span></label>
           <label class="check"><input type="checkbox" id="exKeepVoices"> Stimmen, die keine Zeile sind, im Backing-Track lassen</label>
         </fieldset>
 

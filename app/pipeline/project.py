@@ -254,7 +254,7 @@ def _export_defaults():
     """Export-Einstellungen neuer Projekte: Grundwerte, überschrieben durch die Einstellungen."""
     s = config.user_settings()
     return {
-        "clip_source": "stimmen", "backing_source": "auto",
+        "clip_source": "stimmen", "backing_source": "auto", "backing_volume": 1.0,
         "normalize": s.get("export_normalize", "clip"),
         "image_mode": s.get("export_image_mode", "frame"),
         "keep_unused_voices": bool(s.get("export_keep_voices", True)),

@@ -62,10 +62,11 @@ def _kill_tree(proc):
 
 
 class JobRunner:
-    """Zwei Warteschlangen: 'gpu' (KI, immer nacheinander) und 'cpu' (Export, parallel dazu)."""
+    """Drei Warteschlangen, die nebeneinander laufen: 'gpu' (KI, immer nacheinander), 'cpu' (Export) und 'net'
+    (Downloads und Uploads: ein YouTube-Video lädt, während ein Export läuft)."""
 
     def __init__(self):
-        self.queues = {"gpu": queue.Queue(), "cpu": queue.Queue()}
+        self.queues = {"gpu": queue.Queue(), "cpu": queue.Queue(), "net": queue.Queue()}
         self.running = []
         self.pending = []
         self.finished = []  # letzte Ergebnisse
@@ -139,6 +140,8 @@ class JobRunner:
                 if not code:
                     from app import system
                     code, text = system.friendly_error(f"{type(e).__name__}: {e}")
+                    if code == "net" and job["kind"] in ("download", "instrumental", "upload"):
+                        text = "Keine Verbindung: Die Seite ist nicht erreichbar. Prüfe den Link und das Internet."
                 job["error_code"] = code
                 job["error"] = text or (str(e) if isinstance(e, WorkerError) else f"{type(e).__name__}: {e}")
                 job["error_detail"] = getattr(e, "detail", None) or f"{type(e).__name__}: {e}"
@@ -463,7 +466,7 @@ def download_video(body: dict = Body(...)):
     def run(job, report):
         return dl.download(url, lambda p, msg="": report("Video laden", p, msg))
 
-    return {"job": jobs.submit("download", "", run, "Video laden", lane="cpu")}
+    return {"job": jobs.submit("download", "", run, "Video laden", lane="net")}
 
 
 @app.delete("/api/inbox/{filename}")
@@ -560,7 +563,7 @@ def download_model(mid: str):
         models.download(mid, lambda p, msg="": report("Modell laden", p, msg))
         return {"id": mid}
 
-    return {"job": jobs.submit("model", "", run, f"Laden: {name}", lane="cpu")}
+    return {"job": jobs.submit("model", "", run, f"Laden: {name}", lane="net")}
 
 
 @app.delete("/api/models/{mid}")
@@ -853,6 +856,9 @@ def media_file(pid: str, name: str):
     f = (d / name).resolve()
     if f.parent != d:
         raise HTTPException(403)
+    wav = f.with_suffix(".wav")
+    if not f.exists() and f.name in ("instrumental.ogg", "hintergrund.ogg") and wav.exists():
+        media.encode_opus(wav, f)   # ältere Projekte: Hörfassung für den Editor nachträglich anlegen
     if not f.exists():
         raise HTTPException(404)
     return FileResponse(f)
@@ -917,7 +923,7 @@ def instrumental_from_url(pid: str, body: dict = Body(...)):
             project.save(pid, data)
         return info
 
-    return {"job": jobs.submit("instrumental", pid, run, f"Instrumental laden: {_name(pid)}", lane="cpu")}
+    return {"job": jobs.submit("instrumental", pid, run, f"Instrumental laden: {_name(pid)}", lane="net")}
 
 
 def _align_instrumental(pid, target, report):
@@ -967,6 +973,18 @@ def instrumental_waves(pid: str):
     from app.pipeline import instrumental
     try:
         return instrumental.waves(project.project_dir(pid))
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/projects/{pid}/instrumental/preview/{which}")
+def instrumental_preview(pid: str, which: str):
+    """Hörfassung zum Ausrichten von Hand (mono WAV, springt genau): ref = KI-Hintergrund, own = eigenes Instrumental."""
+    from app.pipeline import instrumental
+    if which not in ("ref", "own"):
+        raise HTTPException(404)
+    try:
+        return FileResponse(instrumental.preview(project.project_dir(pid), which), headers={"Cache-Control": "no-cache"})
     except RuntimeError as e:
         raise HTTPException(400, str(e))
 
@@ -1161,7 +1179,7 @@ def share_link(body: dict = Body(...)):
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"job": jobs.submit("upload", "", lambda job, report: share.upload(path, report),
-                               f"Link erstellen: {Path(path).stem}", lane="cpu")}
+                               f"Link erstellen: {Path(path).stem}", lane="net")}
 
 
 @app.post("/api/open-link")

@@ -40,7 +40,7 @@ After that, the same exe simply starts Voicitool. When a newer version is out he
 4. Watch it through and fix the lines: text, speaker, start and end.
 5. Go to **Export**. Save the pack as a ZIP, or click **Install into the game**.
 
-Each quality level shows how long it will probably take. The estimate learns from every run, so it gets more accurate on your PC over time.
+Each quality level shows how long it will probably take. The estimate learns from every run, so it gets more accurate on your PC over time. Downloads don't wait for a running export, and the progress also shows on the Voicitool icon in the taskbar.
 
 Projects can be sorted into categories (for example one category for 30 Family Guy clips) and exported together.
 
@@ -96,7 +96,7 @@ Standard is fine for most videos. Extreme mostly helps with telling speakers apa
 | Delete | Delete line |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 
-The audio switch **Original / Voices only / Background** lets you check how well the voices were separated. If you set your own instrumental, **Background** plays that one. **Find laughs** adds "(laughs)" lines where someone laughs.
+The audio switch **Original / Voices only / Background** lets you check how well the voices were separated. If you set your own instrumental, **Background** plays that one and **Background + voices** plays it together with the separated voices. The slider next to it sets how loud the background is, and the export uses the same setting. **Find laughs** adds "(laughs)" lines where someone laughs.
 
 **Cut video** removes parts of the video from the pack: drag across the part in the timeline. The original stays untouched, the cut part is only skipped while playing and left out when exporting, and everything after it moves forward. Ctrl+Z undoes a cut, a right-click on it removes it again.
 
@@ -108,7 +108,7 @@ Lines that say the same thing can share one recording: right-click a line and pi
 
 A pack contains the video, one clip per line with its text and timestamps, a background track without voices and the pack info (title, icon, authors). You can choose between voices only and original sound for the clips, and adjust volume and video quality.
 
-If you have the instrumental version of the song, you can load it under Export → Background. Voicitool lines it up with the video on its own. If that doesn't work, click **Align by hand**: you see the separated background and your instrumental on top of each other, can drag yours until they match and listen to one of them or both at once.
+If you have the instrumental version of the song, you can load it under Export → Background. Voicitool lines it up with the video on its own. If that doesn't work, click **Align by hand**: you see the separated background and your instrumental on top of each other, can drag yours until they match and listen to one of them or both at once. Your instrumental gets the same loudness as the music in the video, and **Background volume** turns it up or down from there.
 
 **Create link (72 h)** uploads the exported ZIP to Litterbox (catbox.moe) so you can send it to friends. No account is needed, and the link expires after 72 hours. Keep in mind that the clips usually belong to someone else.
 
