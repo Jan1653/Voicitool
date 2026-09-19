@@ -1929,11 +1929,12 @@ async function loadOnline() {
 }
 const onlineReady = () => !!(onlineState?.ready && (onlineState.ready.separate || onlineState.ready.transcribe));
 const ONLINE_NAMES = { mvsep: 'MVSEP', groq: 'Groq', cloudflare: 'Cloudflare', gemini: 'Gemini' };
-/* Dienste zum Text erkennen, beste zuerst: Groq (genaueste Erkennung, größtes Gratis-Kontingent), Cloudflare, Gemini */
+/* Dienste zum Text erkennen, beste zuerst (gemessen an 3 Referenz-Packs, je 1-Minuten-Stücke): Groq und Cloudflare gleich
+   genau (13,3 / 13,4 % Wortfehler), Groq 2 bis 4 Mal schneller mit größerem Kontingent; Gemini deutlich ungenauer */
 const ONLINE_MODELS = {
-  groq: { model: 'Whisper large-v3', note: 'Genaueste Erkennung, 8 Stunden Ton am Tag.' },
-  cloudflare: { model: 'Whisper large-v3-turbo', note: 'Etwas ungenauer, 3,5 Stunden Ton am Tag.' },
-  gemini: { model: 'Gemini 3.5 Transcribe', note: 'Hört auch, wer spricht. Google darf die Tonspur auswerten.' },
+  groq: { model: 'Whisper large-v3', note: 'Am schnellsten, so genau wie auf dem PC, 8 Stunden Ton am Tag.' },
+  cloudflare: { model: 'Whisper large-v3-turbo', note: 'Genauso genau, etwas langsamer, 3,5 Stunden Ton am Tag.' },
+  gemini: { model: 'Gemini 3.5 Transcribe', note: 'Deutlich ungenauer, kleines Tageslimit. Google darf die Tonspur auswerten.' },
 };
 function asrChoices(withLocal = true) {
   const st = onlineState;
@@ -2002,6 +2003,7 @@ function onlineCard(s, st) {
       <p>${esc(tf('Laut Googles Bedingungen gilt das nicht in der EU, im Vereinigten Königreich und in der Schweiz. Lade nichts hoch, was privat ist oder dir nicht gehört. Nutzung erst ab 18 Jahren.'))}</p>
       <button class="link-btn oc-link" data-url="https://ai.google.dev/gemini-api/terms">${esc(tf('Googles Bedingungen lesen'))} ↗</button></div></div>` : ''}
     <p class="oc-desc">${esc(tf(info.desc))}</p>
+    ${s === 'mvsep' ? `<p class="oc-desc muted">${esc(tf('Gratis-Aufträge stehen dort in einer Warteschlange. Zu Stoßzeiten wartest du 10 bis 20 Minuten, die Trennung selbst dauert unter einer Minute.'))}</p>` : ''}
     <ol class="oc-steps">${info.steps.map(([t, url]) => `<li><span>${esc(tf(t))}</span>${url ? ` <button class="link-btn oc-link" data-url="${esc(url)}">${esc(new URL(url).hostname)} ↗</button>` : ''}</li>`).join('')}</ol>
     ${s === 'gemini' ? `<label class="check oc-accept"><input type="checkbox" class="oc-accepted" ${sv.accepted ? 'checked' : ''}> ${esc(tf('Ich habe den Hinweis gelesen und möchte Gemini trotzdem nutzen.'))}</label>` : ''}
     <div class="oc-fields">${info.fields.map(([f, label]) => `<label>${esc(tf(label))}<input type="password" class="oc-f" data-field="${f}" autocomplete="off" spellcheck="false"

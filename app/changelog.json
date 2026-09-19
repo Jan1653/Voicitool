@@ -1,5 +1,17 @@
 [
   {
+    "build": 23,
+    "date": "2026-09-19",
+    "changes": [
+      "Process online: the audio is now sent for speech recognition in one minute pieces. That is clearly more accurate, in our tests Groq and Cloudflare were as accurate as the recognition on your PC.",
+      "The service list now says what each service is good at, based on these tests: Groq is the fastest, Cloudflare just as accurate, Gemini clearly less accurate with a small daily limit.",
+      "While waiting in the MVSEP queue, Voicitool shows about how long it takes and how many jobs are ahead.",
+      "If the graphics card is busy (for example with a game), online jobs work out speakers and laughs on the processor instead.",
+      "When a service's per minute limit is reached, Voicitool waits briefly and tries again.",
+      "Fixed: the search in \"Provide text\" could take minutes for YouTube videos, because it loaded the automatic translations of the subtitles in about 100 languages."
+    ]
+  },
+  {
     "build": 22,
     "date": "2026-09-19",
     "changes": [

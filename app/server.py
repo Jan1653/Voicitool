@@ -220,7 +220,7 @@ def _process_estimate(pid, dev=None):
     if s.get("online"):   # Online rechnen: Hochladen, Warteschlange und Rechenzeit beim Dienst (grob)
         from app.pipeline import online
         rd = online.ready(asr=s.get("online_asr"))
-        est["steps"] = [[n, 60 + 0.3 * seconds if n == "Stimmen trennen" and rd["separate"] else
+        est["steps"] = [[n, 300 + 0.3 * seconds if n == "Stimmen trennen" and rd["separate"] else
                          15 + 0.05 * seconds if n == "Sprache erkennen" and rd["transcribe"] else t]
                         for n, t in est["steps"]]
         est["total"] = round(sum(t for _, t in est["steps"]), 1)
@@ -345,9 +345,17 @@ def _log_worker_errors(proc, kind, pid):
 def _job_device(pid):
     from app import system
     try:
-        return system.device(project.load(pid).get("settings"))
+        settings = project.load(pid).get("settings") or {}
     except Exception:
         return system.device()
+    dev = system.device(settings)
+    if dev == "gpu" and settings.get("online"):
+        # Online rechnen, Grafikkarte schon stark belegt (z. B. ein Spiel): Sprecher und Lachen auf dem Prozessor,
+        # sonst drängeln sie sich mit dem Spiel um den Grafikspeicher und brauchen ein Vielfaches
+        gpu = system.nvidia()
+        if gpu and gpu.get("vram_total") and gpu["vram_used"] / gpu["vram_total"] > 0.5:
+            dev = "cpu"
+    return dev
 
 
 def run_worker(kind, pid):
@@ -662,7 +670,7 @@ def _online_times():
     dev = system.device()
     est = estimate.estimate(180, config.DEFAULT_QUALITY, True, {"cpu": "cpu", "gpu": "cuda"}.get(dev))
     local = sum(t for _, t in est["steps"])
-    online = sum(114 if n == "Stimmen trennen" else 24 if n == "Sprache erkennen" else t for n, t in est["steps"])
+    online = sum(354 if n == "Stimmen trennen" else 24 if n == "Sprache erkennen" else t for n, t in est["steps"])
     return {"device": dev, "weak": dev == "cpu", "local_3min": round(local), "online_3min": round(online)}
 
 

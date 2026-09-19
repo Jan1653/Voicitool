@@ -13,13 +13,14 @@ import re
 import subprocess
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 
 from app import config
 from app.pipeline import media
 
 UA = {"User-Agent": f"Voicitool/{config.APP_BUILD} (https://github.com/{config.UPDATE_REPO or 'Jan1653/Voicitool'})"}
 TIMEOUT = 15
+SEARCH_TIMEOUT = 25    # so lange höchstens auf alle Quellen zusammen warten (s)
 SOURCES_FILE = config.DATA_DIR / "eingang_quellen.json"   # Dateiname im Eingang -> Adresse, Titel (YouTube-Downloads)
 TEXT_SUBS = {"subrip", "srt", "ass", "ssa", "mov_text", "webvtt", "text"}
 
@@ -145,32 +146,55 @@ def files_with_reftext(files):
     return [f for f in files if (data.get(f) or {}).get("reftext")]
 
 
-def uploader_subs(url):
-    """Beste Untertitel vom Uploader (keine automatisch erzeugten: die sind oft schlechter als unsere eigene Erkennung
-    und würden richtige Wörter überschreiben). Sprache: die Originalsprache des Videos, sonst die einzige Spur.
-    -> {"text", "source", "lang"} oder None"""
+def _yt_info(url):
     import yt_dlp
     from app.pipeline import download
     opts = download.ytdlp_base_options()
-    opts.update({"skip_download": True, "quiet": True})
+    opts.update({"skip_download": True, "quiet": True, "retries": 2})
     with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-    subs = {k: v for k, v in (info.get("subtitles") or {}).items() if k != "live_chat"}
-    if not subs:
-        return None
+        return ydl.extract_info(url, download=False)
+
+
+def _yt_orig(info):
+    """Originalsprache des Videos. YouTube kennzeichnet sie bei den automatischen Untertiteln mit „-orig“."""
     orig = (info.get("language") or "").split("-")[0].lower()
-    if not orig:   # YouTube kennzeichnet die Originalsprache bei den automatischen Untertiteln mit „-orig“
+    if not orig:
         orig = next((k[:-5].split("-")[0] for k in (info.get("automatic_captions") or {}) if k.endswith("-orig")), "")
-    langs = sorted(subs, key=lambda k: (k.split("-")[0].lower() != orig, k))
-    for lang in langs:
-        fmts = subs[lang]
-        f = next((x for x in fmts if x.get("ext") == "vtt"), None) or next((x for x in fmts if x.get("ext") in ("srv1", "ttml")), None)
-        if not f:
-            continue
-        try:
-            text = subs_to_text(_get(f["url"]))
-        except Exception:
-            continue
+    return orig
+
+
+def _yt_tracks(info, auto=True, max_uploader=3):
+    """Welche Spuren laden: vom Uploader höchstens max_uploader (Originalsprache zuerst), automatisch erzeugt nur die in
+    der Originalsprache. YouTube bietet automatische Übersetzungen in rund 100 Sprachen an, die bleiben weg.
+    -> [(Art, Sprache, Formate)]"""
+    orig = _yt_orig(info)
+    subs = {k: v for k, v in (info.get("subtitles") or {}).items() if k != "live_chat"}
+    picks = [("vom Uploader", lang, subs[lang])
+             for lang in sorted(subs, key=lambda k: (k.split("-")[0].lower() != orig, k))[:max_uploader]]
+    if auto:
+        caps = info.get("automatic_captions") or {}
+        key = next((k for k in caps if k.endswith("-orig")), None) or (orig if orig in caps else None)
+        if key:
+            picks.append(("automatisch erzeugt", key[:-5] if key.endswith("-orig") else key, caps[key]))
+    return picks
+
+
+def _yt_text(fmts):
+    f = next((x for x in fmts if x.get("ext") == "vtt"), None) or next((x for x in fmts if x.get("ext") in ("srv1", "ttml")), None)
+    if not f:
+        return ""
+    try:
+        return subs_to_text(_get(f["url"]))
+    except Exception:
+        return ""
+
+
+def uploader_subs(url):
+    """Beste Untertitel vom Uploader (keine automatisch erzeugten: die sind oft schlechter als unsere eigene Erkennung
+    und würden richtige Wörter überschreiben). Sprache: die Originalsprache des Videos, sonst die erste Spur.
+    -> {"text", "source", "lang"} oder None"""
+    for kind, lang, fmts in _yt_tracks(_yt_info(url), auto=False):
+        text = _yt_text(fmts)
         if text:
             return {"text": text, "source": f"YouTube-Untertitel ({lang})", "lang": lang}
     return None
@@ -184,28 +208,13 @@ def source_info(filename):
 
 
 def youtube_subs(url):
-    import yt_dlp
-    from app.pipeline import download
-    opts = download.ytdlp_base_options()
-    opts.update({"skip_download": True, "quiet": True})
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
     out = []
-    for kind, subs in (("vom Uploader", info.get("subtitles") or {}), ("automatisch erzeugt", info.get("automatic_captions") or {})):
-        for lang, fmts in subs.items():
-            if kind == "automatisch erzeugt" and ("-" in lang and not lang.endswith("-orig")):
-                continue   # automatische Übersetzungen in andere Sprachen weglassen
-            f = next((x for x in fmts if x.get("ext") == "vtt"), None) or next((x for x in fmts if x.get("ext") in ("srv1", "ttml")), None)
-            if not f:
-                continue
-            try:
-                text = subs_to_text(_get(f["url"]))
-            except Exception:
-                continue
-            if text:
-                out.append({"source": "YouTube", "id": f"{kind}:{lang}", "title": f"YouTube-Untertitel ({lang})",
-                            "subtitle": kind, "text": text, "auto": kind != "vom Uploader"})
-    return sorted(out, key=lambda r: r.get("auto", False))
+    for kind, lang, fmts in _yt_tracks(_yt_info(url)):
+        text = _yt_text(fmts)
+        if text:
+            out.append({"source": "YouTube", "id": f"{kind}:{lang}", "title": f"YouTube-Untertitel ({lang})",
+                        "subtitle": kind, "text": text, "auto": kind != "vom Uploader"})
+    return out
 
 
 # ------------------------------------------------------------------ Liedtexte
@@ -294,7 +303,8 @@ def search(query, filename=None, lang=None):
     """Alle Quellen gleichzeitig fragen. -> {"results": [...], "failed": [Quelle, …]}"""
     query = (query or "").strip()
     jobs, results, failed = {}, [], []
-    with ThreadPoolExecutor(max_workers=6) as ex:
+    ex = ThreadPoolExecutor(max_workers=6)
+    try:
         if filename:
             from app.pipeline import project
             try:
@@ -309,11 +319,17 @@ def search(query, filename=None, lang=None):
             jobs["LRCLIB"] = ex.submit(lrclib, query)
             jobs["lyrics.ovh"] = ex.submit(lyrics_ovh, query)
             jobs["Fandom"] = ex.submit(fandom, query, lang)
+        done, _ = wait(list(jobs.values()), timeout=SEARCH_TIMEOUT)
         for name, fut in jobs.items():
+            if fut not in done:
+                failed.append(name)   # zu langsam: die anderen Treffer trotzdem zeigen
+                continue
             try:
-                results += fut.result(timeout=TIMEOUT + 20)
+                results += fut.result()
             except Exception:
                 failed.append(name)
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)   # nicht auf hängende Quellen warten
     for r in results:
         if r.get("text"):
             r["preview"] = _preview(r["text"])

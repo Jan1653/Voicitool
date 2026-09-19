@@ -46,7 +46,8 @@ CF_API = "https://api.cloudflare.com/client/v4"
 CF_MODEL = "@cf/openai/whisper-large-v3-turbo"
 GEMINI_API = "https://generativelanguage.googleapis.com"
 GEMINI_MODEL = "gemini-3.5-transcribe"
-CHUNK = {"groq": 20 * 60, "cloudflare": 4 * 60, "gemini": 25 * 60}   # längster Abschnitt je Anfrage (s)
+CHUNK = {"groq": 60, "cloudflare": 60, "gemini": 25 * 60}   # längster Abschnitt je Anfrage (s): kurze Stücke erkennen genauer
+#   (Among Us, 12 min: Groq am Stück 18,2 %, 4 min 16,6 %, 1 min 15,4 % Wortfehler; Cloudflare 4 min 16,4 %, 1 min 15,4 %)
 SR = 16000
 
 
@@ -152,7 +153,28 @@ def _key(service, field):
 
 
 # ------------------------------------------------------------------ HTTP
+def _retry_after(head):
+    try:
+        return float(head.get("retry-after"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _http(service, method, url, headers=None, data=None, timeout=120):
+    """Anfrage; bei 429 (Minutenlimit, z. B. Groq 20 Anfragen je Minute) kurz warten und erneut versuchen."""
+    for attempt in range(4):
+        status, body, head = _http_once(service, method, url, headers, data, timeout)
+        if status != 429 or attempt == 3:
+            return status, body, head
+        wait = _retry_after(head)
+        if wait is None:
+            wait = 5 * (attempt + 1)
+        if wait > 60:   # Tageslimit: Warten lohnt nicht
+            return status, body, head
+        time.sleep(wait + 0.5)
+
+
+def _http_once(service, method, url, headers=None, data=None, timeout=120):
     req = urllib.request.Request(url, data=data, method=method, headers={"User-Agent": UA, **(headers or {})})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -299,6 +321,7 @@ def _mvsep_one(path, token, report, part_label):
     job = j["data"]["hash"]
     began = time.time()
     started = None
+    queue_t, wait_msg = 0.0, None
     while True:
         if time.time() - began > MVSEP_TIMEOUT:
             raise OnlineError("MVSEP hat nach 45 Minuten noch kein Ergebnis geliefert. Versuche es später noch einmal.", "online")
@@ -312,7 +335,16 @@ def _mvsep_one(path, token, report, part_label):
             msg = data.get("message") or ""
             raise OnlineError(f"MVSEP konnte die Tonspur nicht trennen{': ' + msg if msg else ''}.", "online")
         if state == "waiting":
-            report(0.05, f"In der Warteschlange bei MVSEP{part_label}")
+            if time.time() - queue_t > 20:   # Platz und Wartezeit höchstens alle 20 s abfragen
+                queue_t = time.time()
+                try:
+                    q = _json("mvsep", "GET", f"{MVSEP_API}/app/queue/summary?" + urllib.parse.urlencode({"api_token": token}),
+                              timeout=30).get("data") or {}
+                    wait_msg = (f"In der Warteschlange bei MVSEP: noch etwa {max(1, round(q['estimated_wait_seconds'] / 60))} min "
+                                f"({q['ahead']} vor dir){part_label}") if q.get("estimated_wait_seconds") is not None and q.get("ahead") is not None else None
+                except (OnlineError, KeyError, TypeError, ValueError):
+                    wait_msg = None
+            report(0.05, wait_msg or f"In der Warteschlange bei MVSEP{part_label}")
         else:   # processing, distributing, merging
             started = started or time.time()
             report(min(0.9, 0.1 + (time.time() - started) / 150 * 0.8), f"MVSEP trennt die Stimmen{part_label}")

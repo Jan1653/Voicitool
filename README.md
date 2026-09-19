@@ -66,7 +66,7 @@ Without a suitable graphics card, separating the voices and recognizing the text
 | | [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) | about 3.5 hours of audio a day |
 | | [Gemini](https://aistudio.google.com) (optional) | limit not published |
 
-You need your own free accounts. Settings → Process online explains step by step where to get the keys, and Voicitool asks once at the first start whether you want to set it up. Then click **Process online** on a video in the inbox. If you set up more than one service, you can pick one for each video, and the list shows the model and which one is recommended. Only the audio is uploaded, and only for videos where you click that button. The keys stay on your PC. Speakers, laughs and everything else still run locally.
+You need your own free accounts. Settings → Process online explains step by step where to get the keys, and Voicitool asks once at the first start whether you want to set it up. Then click **Process online** on a video in the inbox. If you set up more than one service, you can pick one for each video, and the list shows the model and which one is recommended. Only the audio is uploaded, and only for videos where you click that button. The keys stay on your PC. Speakers, laughs and everything else still run locally. Free MVSEP jobs wait in a queue, at busy times 10 to 20 minutes. In our tests the online speech recognition (Groq or Cloudflare) was as accurate as the one on your PC.
 
 On the free Gemini tier, Google may use uploaded audio to improve its products and people may listen to it. According to Google's terms this does not apply in the EU, the UK and Switzerland. Voicitool shows this warning before Gemini can be used.
 
