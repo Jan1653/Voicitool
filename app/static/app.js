@@ -1353,7 +1353,7 @@ const SET_DEFAULTS = {
   theme: 'system', accent: 'violett', custom_color: '#3f7cf0', reduce_motion: false, ui_scale: 'auto',
   default_quality: '', default_language: '', default_laugh: true,
   snap: true, follow: true, auto_text: true, confirm_delete: false, playback_rate: '1', usage_stats: true,
-  export_video_height: 720, export_video_fps: 30, export_video_quality: 7, export_normalize: 'clip',
+  export_video_height: 720, export_video_fps: 30, export_video_quality: 7, export_normalize: 'lautheit',
   export_image_mode: 'frame', export_keep_voices: true, check_updates: true, compute_device: 'auto', export_line_format: 'ini',
 };
 const setting = k => (SET[k] ?? SET_DEFAULTS[k]);
@@ -2129,33 +2129,76 @@ async function maybeAskOnline() {
    über den Hintergrund gelegt. */
 async function pickFromGame(title, text, load, render) {
   // Fenster sofort zeigen: Das Einlesen der Packs im Spiel dauert je nach Menge ein paar Sekunden
-  let items = [];
+  let items = [], sel = -1;
   const ov = document.createElement('div');
   ov.className = 'dlg-overlay';
-  ov.innerHTML = `<div class="dlg wide" role="dialog" aria-modal="true">
+  ov.innerHTML = `<div class="dlg wider" role="dialog" aria-modal="true">
     <div class="dlg-head"><div class="dlg-icon">${ic('gamepad')}</div>
       <div class="dlg-titles"><h2>${esc(tf(title))}</h2><p class="dlg-text">${esc(tf(text))}</p></div></div>
-    <div class="game-list"><div class="set-note">${esc(tf('Wird geladen …'))}</div></div>
-    <div class="dlg-actions"><button class="btn dlg-close">${esc(tf('Schließen'))}</button></div>`;
+    <div class="game-pick">
+      <div>
+        <input class="game-search" type="search" spellcheck="false" hidden
+          placeholder="${esc(tf('Suchen'))}" aria-label="${esc(tf('Suchen'))}">
+        <div class="game-list"><div class="loadbar"></div></div>
+      </div>
+      <div class="game-info"><span class="muted">${esc(tf('Wähle links einen Eintrag.'))}</span></div>
+    </div>
+    <div class="dlg-actions"><button class="btn dlg-close">${esc(tf('Schließen'))}</button>
+      <button class="btn primary game-go" disabled>${esc(tf('Starten'))}</button></div>`;
   document.body.appendChild(ov);
   const close = () => { ov.remove(); document.removeEventListener('keydown', onKey, true); };
-  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const list = $('.game-list', ov), info = $('.game-info', ov), go = $('.game-go', ov), q = $('.game-search', ov);
+
+  const start = () => { if (sel >= 0) { close(); items[sel].run(); } };
+  const onKey = e => {
+    if (e.key === 'Escape') { e.stopPropagation(); return close(); }
+    if (e.key === 'Enter' && sel >= 0 && ov.isConnected) { e.stopPropagation(); e.preventDefault(); start(); }
+  };
   document.addEventListener('keydown', onKey, true);
+
+  const pick = i => {
+    sel = i;
+    $$('.game-item', ov).forEach(b => b.classList.toggle('sel', +b.dataset.i === i));
+    info.innerHTML = items[i].info || `<b data-nolang>${esc(items[i].search || '')}</b>`;
+    go.disabled = false;
+  };
+  const paint = () => {
+    const needle = (q.value || '').trim().toLowerCase();
+    const hit = items.map((it, i) => [it, i])
+      .filter(([it]) => !needle || (it.search || '').toLowerCase().includes(needle));
+    list.innerHTML = hit.length
+      ? hit.map(([it, i]) => `<button class="game-item${i === sel ? ' sel' : ''}" data-i="${i}">${it.html}</button>`).join('')
+      : `<div class="set-note">${esc(tf('Nichts gefunden.'))}</div>`;
+  };
+  q.addEventListener('input', paint);
   ov.addEventListener('click', e => {
     if (e.target === ov || e.target.closest('.dlg-close')) return close();
+    if (e.target.closest('.game-go')) return start();
     const b = e.target.closest('.game-item');
-    if (b) { close(); items[+b.dataset.i].run(); }
+    if (b) pick(+b.dataset.i);
   });
+  ov.addEventListener('dblclick', e => { if (e.target.closest('.game-item')) start(); });
+
   let data;
   try { data = await load(); } catch (e) { close(); return toast(e.message, true, 6000); }
   if (!ov.isConnected) return;   // inzwischen geschlossen
   items = render(data);
   if (!items.length) return close();
-  $('.game-list', ov).innerHTML = items.map((it, i) => `<button class="game-item" data-i="${i}">${it.html}</button>`).join('');
+  q.hidden = items.length < 6;   // bei wenigen Einträgen braucht es kein Suchfeld
+  if (!q.hidden) q.focus();
+  paint();
   if (data.dir) {
     $('.dlg-text', ov).insertAdjacentHTML('afterend', `<p class="dlg-hint" data-nolang>${esc(data.dir)}</p>`);
   }
 }
+
+/* Zeitpunkt für die Infospalte, in der Sprache der Oberfläche */
+function whenText(sec) {
+  if (!sec) return '';
+  return new Date(sec * 1000).toLocaleString(window.VT_I18N?.lang || undefined,
+    { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+function infoRow(k, v) { return `<div><span class="k">${esc(tf(k))}</span><span data-nolang>${esc(v)}</span></div>`; }
 
 $('#btnImportPack').onclick = () => pickFromGame(
   'Pack bearbeiten', 'Ein fertiges Pack aus dem Spiel wird als Projekt übernommen: Video, Zeilen, Sprecher und Zeiten. Es wird nichts neu erkannt.',
@@ -2165,6 +2208,14 @@ $('#btnImportPack').onclick = () => pickFromGame(
     if (!data.packs.length) { toast(tf('Im Spiel sind keine Packs.'), true); return []; }
     return data.packs.map(p => ({
       html: `<b data-nolang>${esc(p.title)}</b><span class="muted small">${esc(tf('{} Zeilen', p.lines))}${p.video ? '' : ' · ' + esc(tf('ohne Video'))}</span>`,
+      search: `${p.title} ${p.name} ${p.authors || ''}`,
+      info: `<b data-nolang>${esc(p.title)}</b>`
+        + infoRow('Zeilen', p.lines)
+        + (p.authors ? infoRow('Von', p.authors) : '')
+        + infoRow('Video', p.video ? tf('ja') : tf('fehlt'))
+        + (p.modified ? infoRow('Geändert', whenText(p.modified)) : '')
+        + `<div class="muted small" style="margin-top:8px">${esc(tf('Zeilen, Sprecher und Zeiten werden übernommen. Es wird nichts neu erkannt.'))}</div>`
+        + `<div style="margin-top:6px"><code data-nolang>${esc(p.name)}</code></div>`,
       run: async () => {
         if (!p.video) return toast(tf('In diesem Pack fehlt das Video.'), true);
         try {
@@ -2187,7 +2238,19 @@ $('#btnSessionVideo').onclick = () => pickFromGame(
     return data.sessions.map(s => ({
       html: `<b data-nolang>${esc(s.pack || tf('Pack unbekannt'))}</b>
         <span class="muted small" data-nolang>${esc(s.label || '')}</span>
-        <span class="muted small">${esc(tf('{} Aufnahmen', s.takes))} · ${esc(s.kind === 'multi' ? tf('zusammen') : tf('allein'))}</span>`,
+        <span class="muted small">${esc(tf('{} Aufnahmen', s.takes))} · ${esc(s.kind === 'multi' ? tf('zusammen') : tf('allein'))}</span>
+        ${s.video ? `<span class="pill ok small">${esc(tf('exportiert'))}</span>` : ''}`,
+      search: `${s.pack || ''} ${s.label || ''}`,
+      info: `<b data-nolang>${esc(s.pack || tf('Pack unbekannt'))}</b>`
+        + infoRow('Aufnahmen', s.takes)
+        + infoRow('Aufgenommen', s.kind === 'multi' ? tf('zusammen mit Freunden') : tf('allein'))
+        + (s.when ? infoRow('Wann', whenText(s.when)) : '')
+        + (s.label ? infoRow('Ordner', s.label) : '')
+        + (s.video ? `<div style="margin-top:6px">${esc(tf('Schon exportiert'))}<br><code data-nolang>${esc(s.video)}</code></div>` : '')
+        + `<div class="muted small" style="margin-top:8px">${esc(!s.pack
+            ? tf('Zu dieser Aufnahme wurde kein Pack gefunden. Das Video lässt sich nicht bauen.')
+            : s.video ? tf('Ein neuer Durchlauf ersetzt die vorhandene Datei.')
+            : tf('Die Aufnahmen werden über das Video des Packs gelegt und als Videodatei gespeichert.'))}</div>`,
       run: async () => {
         try {
           const { job } = await api('POST', '/api/game/session-video', { session: s.id, pack: s.pack || null });

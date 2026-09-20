@@ -266,7 +266,7 @@ def _export_defaults():
     s = config.user_settings()
     return {
         "clip_source": "stimmen", "backing_source": "auto", "backing_volume": 1.0,
-        "normalize": s.get("export_normalize", "clip"),
+        "normalize": s.get("export_normalize", "lautheit"),
         "image_mode": s.get("export_image_mode", "frame"),
         "keep_unused_voices": bool(s.get("export_keep_voices", True)),
         "video_height": int(s.get("export_video_height", 720)),

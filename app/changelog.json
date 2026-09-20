@@ -1,5 +1,17 @@
 [
   {
+    "build": 29,
+    "date": "2026-09-20",
+    "changes": [
+      "All clips in a pack now get the same perceived loudness. Measured over 28 packs the volume spread dropped from 5.1 dB to 0.6 dB, which is quieter than handmade packs vary. The old modes are still there in the export settings.",
+      "The peak limit went from 0.93 to 0.89, so clips no longer clip after they are encoded.",
+      "Still images: if the frame at the start of a line is black, a blend or needlessly blurry, Voicitool takes a better frame from the same shot. Bad frames went from 2.3 to 0.4 percent, and the image never jumps to a different shot.",
+      "Picking a pack or a recording from the game now has a search box, shows the details on the right and starts only when you press Start. Recordings that already have a video are marked.",
+      "While something loads there is a loading bar instead of German text.",
+      "The new texts are translated into all 26 languages."
+    ]
+  },
+  {
     "build": 28,
     "date": "2026-09-20",
     "changes": [

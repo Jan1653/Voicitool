@@ -364,6 +364,15 @@ def list_sessions():
                             "label": ses.name if ses.name != "_unsessioned" else "", "takes": len(waves),
                             "when": ses.stat().st_mtime})
     out.sort(key=lambda s: s["when"], reverse=True)
+    # Fertige Videos tragen den Zeitstempel der Aufnahme im Namen: so sieht man, was schon exportiert ist
+    try:
+        made = [f for f in config.EXPORT_VIDEOS.glob("*.mp4")]
+    except OSError:
+        made = []
+    for s in out:
+        stamp = time.strftime("%Y-%m-%d %H-%M", time.localtime(s["when"]))
+        hit = next((f for f in made if f.name.endswith(f" {stamp}.mp4")), None)
+        s["video"] = str(hit) if hit else None
     # Das Spiel schreibt dieselbe Aufnahme oft in beide Ordner. Gleiches Pack, gleiche Anzahl und fast gleiche
     # Zeit: nur einmal zeigen, und zwar die Fassung mit lesbarem Datum (allein aufgenommen).
     seen, unique = [], []

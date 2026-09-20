@@ -14,6 +14,75 @@ from app.pipeline import media, project
 
 MAX_CLIP = 59.5  # Spiel-Limit: Clips < 60 s
 
+# Lautstaerke der Clips. Gemessen an handgemachten Packs: die liegen im Mittel bei -17,2 LUFS
+# und streuen innerhalb eines Packs nur um gut 3 dB. Ohne Lautheits-Abgleich sind es bei uns 5 bis 8 dB.
+LOUD_TARGET = -18.0    # LUFS, Ziel je Clip
+LOUD_MAX_GAIN = 24.0   # dB, mehr wuerde bei fehlsegmentierten Clips den Trennungsrest hochziehen
+LOUD_FLOOR = -45.0     # LUFS, praktisch stille Clips bleiben unveraendert
+PEAK = 0.89            # Spitzendeckel; bei 0,93 uebersteuern nach dem OGG-Kodieren 2,7 % der Clips
+
+
+_K_CACHE = {}
+
+
+def _k_filters(sr):
+    """Filter nach ITU-R BS.1770: Shelving plus Hochpass, auf die Abtastrate umgerechnet."""
+    import math
+    if sr in _K_CACHE:
+        return _K_CACHE[sr]
+    f0, G, Q = 1681.974450955533, 3.999843853973347, 0.7071752369554196
+    K = math.tan(math.pi * f0 / sr)
+    Vh = 10 ** (G / 20.0)
+    Vb = Vh ** 0.4996667741545416
+    a0 = 1.0 + K / Q + K * K
+    b1 = [(Vh + Vb * K / Q + K * K) / a0, 2.0 * (K * K - Vh) / a0, (Vh - Vb * K / Q + K * K) / a0]
+    a1 = [1.0, 2.0 * (K * K - 1.0) / a0, (1.0 - K / Q + K * K) / a0]
+    f0, Q = 38.13547087602444, 0.5003270373238773
+    K = math.tan(math.pi * f0 / sr)
+    d = 1.0 + K / Q + K * K
+    b2 = [1.0, -2.0, 1.0]
+    a2 = [1.0, 2.0 * (K * K - 1.0) / d, (1.0 - K / Q + K * K) / d]
+    _K_CACHE[sr] = (np.array(b1), np.array(a1), np.array(b2), np.array(a2))
+    return _K_CACHE[sr]
+
+
+def _lufs(x, sr):
+    """Empfundene Lautheit eines Clips in LUFS (BS.1770-4, mit Sperre fuer stille Stellen)."""
+    from scipy import signal
+    if len(x) < sr // 10:
+        return -70.0
+    b1, a1, b2, a2 = _k_filters(sr)
+    y = signal.lfilter(b2, a2, signal.lfilter(b1, a1, x.astype(np.float64)))
+    bs, step = max(1, int(0.4 * sr)), max(1, int(0.1 * sr))
+    n = (len(y) - bs) // step + 1
+    if n <= 0:
+        return float(-0.691 + 10 * np.log10(np.mean(y ** 2) + 1e-12))
+    idx = np.arange(bs)[None, :] + step * np.arange(n)[:, None]
+    p = np.mean(y[idx] ** 2, axis=1)
+    lv = -0.691 + 10 * np.log10(p + 1e-12)
+    keep = lv > -70.0
+    if not keep.any():
+        return -70.0
+    rel = -0.691 + 10 * np.log10(np.mean(p[keep]) + 1e-12) - 10.0
+    keep &= lv > rel
+    if not keep.any():
+        return -70.0
+    return float(-0.691 + 10 * np.log10(np.mean(p[keep]) + 1e-12))
+
+
+def _match_loudness(clips, sr):
+    """Jeden Clip auf dieselbe Lautheit bringen, ohne die Spitzen anzuheben."""
+    out = []
+    for c in clips:
+        peak = float(np.abs(c).max())
+        loud = _lufs(c, sr) if peak > 1e-4 else -70.0
+        if peak <= 1e-4 or loud <= LOUD_FLOOR:
+            out.append(c)  # still: so lassen, sonst wird nur das Rauschen laut
+            continue
+        gain = min(10 ** ((LOUD_TARGET - loud) / 20.0), 10 ** (LOUD_MAX_GAIN / 20.0), PEAK / peak)
+        out.append(c * gain if abs(gain - 1.0) > 0.005 else c)
+    return out
+
 
 def _ini_str(s):
     s = re.sub(r"\s*\n\s*", " ", str(s)).strip()
@@ -223,11 +292,14 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
         if e0 - s0 > MAX_CLIP:
             warnings.append(f"Zeile bei {ln['start']:.1f}s war länger als 60 s und wurde gekürzt.")
         clips.append(_fade(mono[a:b].copy(), sr))
-    if opts["normalize"] == "clip":
-        clips = [c / (np.abs(c).max() + 1e-9) * 0.93 if np.abs(c).max() > 1e-4 else c for c in clips]
+    if opts["normalize"] == "lautheit":
+        report("Clips schneiden", 0, "Lautstärke angleichen")
+        clips = _match_loudness(clips, sr)
+    elif opts["normalize"] == "clip":
+        clips = [c / (np.abs(c).max() + 1e-9) * PEAK if np.abs(c).max() > 1e-4 else c for c in clips]
     elif opts["normalize"] == "gemeinsam":
         peak = max((np.abs(c).max() for c in clips), default=1.0)
-        clips = [c / (peak + 1e-9) * 0.93 for c in clips]
+        clips = [c / (peak + 1e-9) * PEAK for c in clips]
 
     # 3) Clips, Bilder, INIs
     width = len(str(len(lines))) if len(lines) >= 1000 else 3
@@ -246,10 +318,10 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
                 shutil.copyfile(d / "bilder" / img_char["image"], tmp / image)
         elif mode in ("frame", "charakter"):
             image = f"{base}.jpg"
-            t = ln["start"] + min(0.3, (ln["end"] - ln["start"]) / 2)
             try:
-                media.grab_frame(src, t, tmp / image)
-            except RuntimeError:
+                media.pick_frame(src, ln["start"], ln["end"], tmp / image,
+                                 (data.get("width"), data.get("height")), data.get("fps"))
+            except (RuntimeError, OSError, ValueError):
                 image = None
 
         ini = ([f"; {tag}"] if tag else []) + ["[data]", "", f"caption={_ini_str(ln['text'])}"]

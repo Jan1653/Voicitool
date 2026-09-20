@@ -175,6 +175,7 @@
           <div class="set-row">
             <div class="set-label">Lautstärke der Clips</div>
             <select data-setting="export_normalize">
+              <option value="lautheit">Alle Clips gleich laut (empfohlen)</option>
               <option value="clip">Jeden Clip laut machen (bestes Scoring)</option>
               <option value="gemeinsam">Alle gemeinsam anheben (Verhältnis bleibt)</option>
               <option value="aus">Unverändert</option>
@@ -255,7 +256,7 @@
         </section>
 
         <section data-sec="online" hidden>
-          <div id="onlineBox" class="online-box"><div class="set-note">Wird geladen …</div></div>
+          <div id="onlineBox" class="online-box"><div class="loadbar"></div></div>
         </section>
 
         <section data-sec="updates" hidden>
@@ -497,6 +498,7 @@
           <label class="radio" id="clipDiffRow" hidden><input type="radio" name="clipSource" value="differenz"> Original minus Instrumental <span class="muted">(exakte Stimmen)</span></label>
           <label>Lautstärke
             <select id="exNormalize">
+              <option value="lautheit">Alle Clips gleich laut (empfohlen)</option>
               <option value="clip">Jeden Clip laut machen (bestes Scoring)</option>
               <option value="gemeinsam">Alle gemeinsam anheben (Verhältnis bleibt)</option>
               <option value="aus">Unverändert</option>
