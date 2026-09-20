@@ -1,5 +1,14 @@
 [
   {
+    "build": 36,
+    "date": "2026-09-20",
+    "changes": [
+      "Lines are cut off less often. Two voices that overlap are allowed to stay overlapped now, the way people build packs by hand, instead of being split at the quietest point between them. Two lines of the same character still never overlap.",
+      "Short sentences that follow each other closely stay in one line, so the lines are as long as the ones people write.",
+      "Measured on 28 reference packs: lines that start too late went from 29.6 to 23.1 percent, lines that end too early from 29.4 to 25.3, lines cut at either edge from 47.0 to 39.6 percent, and the overlap with the real voice from 0.81 to 0.85. Lines that match a handmade line one to one went from 1042 to 1076, split lines from 597 to 489."
+    ]
+  },
+  {
     "build": 35,
     "date": "2026-09-20",
     "changes": [

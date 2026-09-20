@@ -118,10 +118,14 @@ OUTRO_PHRASES = {"thanks for watching", "thank you for watching", "for watching"
 
 
 def build_lines(words, pause_split=0.8, target_len=6.0, max_len=10.0, sentence_pause=None,
-                join_short=None, join_sounds=0.5):
+                join_short=(2.0, 0.35), join_sounds=0.5):
     """sentence_pause: Sätze desselben Sprechers nur trennen, wenn dazwischen mehr Pause liegt (None = jeder Satz).
     join_short: (Länge, Pause) sehr kurze Sätze („What? What? What?“) nicht trennen, solange die Zeile kürzer und
-                die Pause kleiner ist. join_sounds: aufeinanderfolgende Laute „(…)“ bis zu dieser Pause verbinden."""
+                die Pause kleiner ist. join_sounds: aufeinanderfolgende Laute „(…)“ bis zu dieser Pause verbinden.
+
+    join_short (2.0, 0.35) an 28 Referenz-Packs gemessen: zerstückelte Zeilen 633 -> 489, 1:1 getroffene Zeilen
+    1054 -> 1076, angeschnittene Anfänge 28,2 -> 23,1 %, IoU 0,819 -> 0,845, Wortfehler unverändert.
+    Kosten: zusammengelegte Zeilen 171 -> 234. (2.5, 0.5) legt noch mehr zusammen und trifft 1:1 schlechter."""
     words = snap_speaker_changes(words)
     lines, cur = [], None
 
@@ -178,6 +182,9 @@ def envelope_db(audio16k, hop=160):
     return 20 * np.log10(rms)  # 10 ms pro Wert
 
 
+OVERLAP_S = 0.10   # so weit darf eine Zeile in die Zeile eines anderen Sprechers hineinragen
+
+
 def refine_bounds(lines, env_db, pre=0.35, post=0.5, fps=100,
                   lead_s=0.10, tail_s=0.15, pre_pad=0.05, post_pad=0.02, follow_s=0.7):
     """Start/Ende an den tatsächlichen Sprechbeginn anpassen.
@@ -198,6 +205,7 @@ def refine_bounds(lines, env_db, pre=0.35, post=0.5, fps=100,
     8 Packs besser, keines schlechter. Kürzere Werte bringen mehr, kosten aber verpasste Zeilen.
     """
     n = len(env_db)
+    raw = [(ln["start"], ln["end"]) for ln in lines]   # Wortgrenzen vor dem Nachjustieren
     floor_all = float(np.percentile(env_db, 10))
     hold = max(2, int(0.03 * fps))     # 30 ms müssen laut bleiben
     lead = int(lead_s * fps)
@@ -254,11 +262,19 @@ def refine_bounds(lines, env_db, pre=0.35, post=0.5, fps=100,
             while end_i < limit and env_db[end_i + 1] >= soft:
                 end_i += 1
             ln["end"] = (end_i + 1) / fps + post_pad
-    # Erweiterungen dürfen nicht in die Nachbarzeile ragen -> an der leisesten Stelle trennen
+    # Erweiterungen dürfen nicht in die Nachbarzeile ragen -> an der leisesten Stelle trennen.
+    # Ausnahme: verschiedene Sprecher. In den von Hand gebauten Packs überlappen sich 28 % der Nachbarpaare
+    # wirklich in der Stimme; trennt man dort hart, schneidet man jedem der beiden eine Silbe ab.
     for i in range(1, len(lines)):
         prev, cur = lines[i - 1], lines[i]
         if cur["start"] >= prev["end"]:
             continue
+        if prev.get("spk") != cur.get("spk"):
+            # jede Zeile behält ihre eigenen Wortgrenzen plus Polster, der Rest der Überlappung bleibt stehen
+            prev["end"] = min(prev["end"], raw[i][0] + OVERLAP_S)
+            cur["start"] = max(cur["start"], raw[i - 1][1] - OVERLAP_S)
+            if cur["start"] < prev["end"]:
+                continue
         lo = int(max(prev["start"] + 0.15, cur["start"]) * fps)
         hi = int(min(cur["end"] - 0.15, prev["end"]) * fps) + 1
         if hi - lo >= 2 and hi <= n:
