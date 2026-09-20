@@ -2923,16 +2923,71 @@ async function deleteLine(l, ask = true) {
   if (next) selectLine(next.id, { scroll: false });
 }
 
+/* Zeile teilen: Wörter des Textes auf die erkannten Wörter abbilden, dann in der Lücke zwischen zwei Wörtern
+   schneiden. Früher wurde nur nach Anteilen geteilt („60 % der Zeit, also 60 % der Wörter“); stand im Text etwas
+   anderes als erkannt (nachbearbeitet, Lacher, zweiter Sprecher im selben Zeitraum), rutschte ein Wort auf die
+   falsche Seite, und der Schnitt lag mitten im Wort. */
+const wordKey = s => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+/** Längste gemeinsame Folge zweier Wortlisten -> Paare [Text-Wort, erkanntes Wort] in Reihenfolge. */
+function lcsPairs(a, b) {
+  const n = a.length, m = b.length;
+  if (!n || !m) return [];
+  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = (a[i] && a[i] === b[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const out = [];
+  for (let i = 0, j = 0; i < n && j < m;) {
+    if (a[i] && a[i] === b[j]) { out.push([i, j]); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) i++;
+    else j++;
+  }
+  return out;
+}
+
+/** Zeit je Wort im Text der Zeile (aus der Erkennung, Unbekanntes dazwischen geschätzt) oder null. */
+function lineWordTimes(l) {
+  const tokens = (l.text || '').split(/\s+/).filter(Boolean);
+  const words = (S.words || []).filter(w => w.e > l.start + 0.02 && w.s < l.end - 0.02 && !w.sound);
+  if (tokens.length < 2 || words.length < 2) return null;
+  const pairs = lcsPairs(tokens.map(wordKey), words.map(w => wordKey(w.w)));
+  if (pairs.length < 2) return null;
+  const times = new Array(tokens.length).fill(null);
+  for (const [i, j] of pairs) times[i] = { s: words[j].s, e: words[j].e };
+  let lastKnown = { s: l.start, e: l.start };
+  for (let i = 0; i < times.length; i++) {
+    if (times[i]) { lastKnown = times[i]; continue; }
+    let j = i;
+    while (j < times.length && !times[j]) j++;
+    const next = times[j] || { s: l.end, e: l.end };   // Lücke gleichmäßig auf die unbekannten Wörter verteilen
+    const step = (next.s - lastKnown.e) / (j - i + 1);
+    for (let k = i; k < j; k++) times[k] = { s: lastKnown.e + step * (k - i), e: lastKnown.e + step * (k - i + 1) };
+    i = j - 1;
+  }
+  return times;
+}
+
 function splitLine(l, t) {
   if (t <= l.start + 0.1 || t >= l.end - 0.1) return toast('Zum Teilen die Stelle innerhalb der Zeile wählen.', true);
   snapshot();
-  const inside = S.words.filter(w => w.s >= l.start - 0.05 && w.e <= l.end + 0.05);
-  let frac = (t - l.start) / (l.end - l.start);
-  if (inside.length) frac = inside.filter(w => (w.s + w.e) / 2 < t).length / inside.length;
   const tokens = l.text.split(/\s+/).filter(Boolean);
-  const cut = Math.round(tokens.length * frac);
-  const second = { id: newId(), start: r3(t), end: l.end, text: tokens.slice(cut).join(' '), chars: [...l.chars] };
-  l.end = r3(t); l.text = tokens.slice(0, cut).join(' ');
+  const times = lineWordTimes(l);
+  let cut, e1 = t, s2 = t;
+  if (times) {
+    cut = clamp(times.filter(w => (w.s + w.e) / 2 < t).length, 1, tokens.length - 1);
+    const prev = times[cut - 1], next = times[cut];
+    const mid = clamp((prev.e + next.s) / 2, prev.e, Math.max(prev.e, next.s));   // Lücke zwischen den Wörtern
+    e1 = Math.min(mid, prev.e + 0.05);
+    s2 = Math.max(mid, next.s - 0.05);
+    if (e1 - l.start < MIN_LEN || l.end - s2 < MIN_LEN || s2 < e1) { e1 = s2 = t; }
+  } else {
+    cut = Math.round(tokens.length * (t - l.start) / (l.end - l.start));
+  }
+  const second = { id: newId(), start: r3(s2), end: l.end, text: tokens.slice(cut).join(' '), chars: [...l.chars] };
+  l.end = r3(e1); l.text = tokens.slice(0, cut).join(' ');
   S.p.lines.push(second);
   afterChange(null);
   selectLine(second.id);

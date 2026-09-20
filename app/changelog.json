@@ -1,5 +1,12 @@
 [
   {
+    "build": 24,
+    "date": "2026-09-20",
+    "changes": [
+      "Splitting a line now cuts in the pause between two words instead of in the middle of one, and it matches the words of the text to the recognized words. Before, a word could end up in the wrong half, especially after the text had been edited."
+    ]
+  },
+  {
     "build": 23,
     "date": "2026-09-19",
     "changes": [
