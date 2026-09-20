@@ -1,5 +1,17 @@
 [
   {
+    "build": 26,
+    "date": "2026-09-20",
+    "changes": [
+      "Process online: quiet moments without words, like gasping or sighing, now become a placeholder line, the same way processing on your PC already did. In a test episode this turned 18 missed lines into none.",
+      "Process online: the preview video is now made while the separation service is working. For a 12 minute episode that saves about two and a half minutes.",
+      "The preview video is now also encoded by Intel and AMD graphics, not only NVIDIA.",
+      "Online jobs only switch to the processor when the graphics card is really full. Before, a busy graphics card made the laugh detection about 20 times slower.",
+      "Several fixes in online processing: lines could overlap when a service reported times beyond the piece it was given, long stretches without a pause were not cut into pieces, Gemini could stop with a technical error or quietly return nothing, and waiting in the MVSEP queue no longer triggers a wrong warning about the graphics card.",
+      "The preview video no longer keeps being encoded in the background when processing fails."
+    ]
+  },
+  {
     "build": 25,
     "date": "2026-09-20",
     "changes": [

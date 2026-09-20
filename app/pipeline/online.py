@@ -74,7 +74,7 @@ def save(values):
                 svc = cur.setdefault(k, {})
                 for f in FIELDS[k]:
                     if f in v:
-                        val = str(v[f] or "").strip()
+                        val = "".join(str(v[f] or "").split())
                         if val:
                             svc[f] = val
                         else:
@@ -169,6 +169,7 @@ def _http(service, method, url, headers=None, data=None, timeout=120):
         wait = _retry_after(head)
         if wait is None:
             wait = 5 * (attempt + 1)
+        wait = max(0.0, wait)
         if wait > 60:   # Tageslimit: Warten lohnt nicht
             return status, body, head
         time.sleep(wait + 0.5)
@@ -419,8 +420,10 @@ def separate(audio_path, out_dir, on_progress):
             ins_all[s0:s0 + n] += got[1][:n] * w[:, None]
             weight[s0:s0 + n] += w
         weight = np.maximum(weight, 1e-3)[:, None]
-        sf.write(str(out_dir / "stimmen.wav"), np.clip(voc_all / weight, -1, 1), sr, subtype="PCM_16")
-        sf.write(str(out_dir / "hintergrund.wav"), np.clip(ins_all / weight, -1, 1), sr, subtype="PCM_16")
+        for buf, name in ((voc_all, "stimmen.wav"), (ins_all, "hintergrund.wav")):
+            buf /= weight                       # an Ort und Stelle: sonst liegt der Puffer doppelt im Speicher
+            np.clip(buf, -1, 1, out=buf)
+            sf.write(str(out_dir / name), buf, sr, subtype="PCM_16")
         on_progress(1.0, "Stimmen getrennt")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -460,7 +463,10 @@ def _lang_code(v):
 
 
 def _chunks(regions, total, limit):
-    """Stimm-Bereiche zu Abschnitten zusammenfassen, geteilt nur in Pausen. -> [(a, b)]"""
+    """Stimm-Bereiche zu Abschnitten zusammenfassen, bevorzugt in Pausen geteilt.
+
+    Lange Stellen ohne Pause (Lied, Vortrag) werden hart geschnitten: zu lange Abschnitte erkennen die Dienste
+    messbar schlechter (Among Us, 12 min: am Stück 18,2 %, in 1-Minuten-Stücken 15,4 % Wortfehler). -> [(a, b)]"""
     out, a, b = [], None, None
     for x, y in regions:
         if a is None:
@@ -470,6 +476,9 @@ def _chunks(regions, total, limit):
             a, b = (b + x) / 2, y
         else:
             b = y
+        while b - a > limit:
+            out.append((a, a + limit))
+            a = a + limit
     if a is not None:
         out.append((a, min(total, b + 0.3)))
     return out
@@ -500,8 +509,11 @@ def _groq(data, language):
              "avg_logprob": s.get("avg_logprob"), "no_speech_prob": s.get("no_speech_prob")} for s in j.get("segments") or []]
     words = [{"word": w.get("word", ""), "start": w.get("start", 0.0), "end": w.get("end", 0.0)} for w in j.get("words") or []]
     for w in words:   # Groq liefert die Wörter getrennt von den Abschnitten: zuordnen
-        w["seg"] = next((i for i, s in enumerate(segs) if s["start"] - 0.05 <= (w["start"] + w["end"]) / 2 <= s["end"] + 0.05),
-                        max(0, len(segs) - 1))
+        mid = (w["start"] + w["end"]) / 2
+        hit = next((i for i, s in enumerate(segs) if s["start"] - 0.05 <= mid <= s["end"] + 0.05), None)
+        if hit is None and segs:   # dazwischen: der zeitlich nächste Abschnitt, nicht blind der letzte
+            hit = min(range(len(segs)), key=lambda i: min(abs(segs[i]["start"] - mid), abs(segs[i]["end"] - mid)))
+        w["seg"] = hit or 0
     return segs, words, _lang_code(j.get("language")), None
 
 
@@ -562,11 +574,14 @@ def _gemini(data, language):
               {"model": GEMINI_MODEL, "input": [{"type": "audio", "uri": uri, "mime_type": mime}],
                "generation_config": {"transcription_config": cfg}}, timeout=900)
     began = time.time()
-    while j.get("status") not in (None, "completed") and time.time() - began < 900:
-        if j.get("status") in ("failed", "cancelled"):
+    while j.get("status") not in (None, "completed"):
+        jid = j.get("id") or j.get("name")
+        if j.get("status") in ("failed", "cancelled") or not jid:
             raise OnlineError("Gemini konnte die Tonspur nicht erkennen.", "online")
+        if time.time() - began > 900:
+            raise OnlineError("Gemini hat nach 15 Minuten kein Ergebnis geliefert. Versuche es später noch einmal.", "online")
         time.sleep(3)
-        j = _json("gemini", "GET", f"{GEMINI_API}/v1beta/{j['id']}", {"x-goog-api-key": key})
+        j = _json("gemini", "GET", f"{GEMINI_API}/v1beta/{jid}", {"x-goog-api-key": key})
     words, segs, last_spk = [], [], None
     for step in j.get("steps") or []:
         for content in step.get("content") or []:
@@ -649,16 +664,23 @@ def transcribe(voc16, language, on_progress, vad_threshold=0.35, service=None):
             if service != "gemini":
                 for si, s in enumerate(segs):
                     _attach_punct([w for w in ws if w["seg"] == si], s["text"])
-            keep = {}
+            keep, span = {}, b - a
             for si, s in enumerate(segs):
                 if _drop(s):
                     continue
+                st = min(max(0.0, float(s["start"])), span)
+                en = min(max(st, float(s["end"])), span)
                 keep[si] = len(seg_list)
-                seg_list.append({"start": round(s["start"] + a, 3), "end": round(s["end"] + a, 3), "text": s["text"].strip()})
+                seg_list.append({"start": round(st + a, 3), "end": round(en + a, 3), "text": s["text"].strip()})
             for w in ws:
                 if w["seg"] not in keep or not str(w["word"]).strip():
                     continue
-                s, e = float(w["start"]) + a, float(w["end"]) + a
+                ws_, we_ = float(w["start"]), float(w["end"])
+                if ws_ > span + 0.2:
+                    continue   # Zeit außerhalb des Abschnitts: der Dienst hat sich verschätzt
+                ws_ = min(max(0.0, ws_), span)
+                we_ = min(max(we_, ws_ + 0.02), span)
+                s, e = ws_ + a, we_ + a
                 mid = (s + e) / 2
                 if not any(x - 0.25 <= mid <= y + 0.25 for x, y in regions):
                     continue   # Wort in der Stille: erfunden
@@ -681,5 +703,13 @@ def transcribe(voc16, language, on_progress, vad_threshold=0.35, service=None):
     if found:
         words = T.drop_foreign_script(words, found)
     words = T.fix_stretched_words(words, voc16)
-    return {"language": found or "en", "language_probability": round(prob, 3) if prob is not None else None,
+    # Stimmhafte Stellen ohne erkanntes Wort (Luftholen, Stöhnen, Seufzen) als Laut-Zeile „(…)“ merken. Lokal macht das
+    # fill_voice_gaps mit Whisper; online wäre je Lücke eine eigene Anfrage nötig, deshalb nur der Hinweis.
+    # An Among Us Folge 6 gemessen: 18 verpasste Referenz-Zeilen (alles Laute) werden 0, dafür 1 erfundene mehr.
+    env = T._envelope_db(voc16)
+    for gap_a, gap_b in T.voice_gaps(env, words):
+        words.append({"w": " " + T.SOUND_TEXT, "s": round(gap_a, 3), "e": round(gap_b, 3), "p": 0.0,
+                      "seg": -1, "sound": True})
+    words.sort(key=lambda w: w["s"])
+    return {"language": found, "language_probability": round(prob, 3) if prob is not None else None,
             "segments": seg_list, "words": words, "service": service}

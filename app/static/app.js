@@ -894,6 +894,7 @@ inboxEl.addEventListener('click', async e => {
     }
     const b = e.target.closest('.go-online'); b.disabled = true;
     const v = inboxForm[file];
+    if (!await preflight('process', { file, quality: v.quality, laugh: v.laugh, language: v.language, device: 'online' })) { b.disabled = false; return; }
     try {
       const asr = asrChoices().some(o => o.value === v.online_asr) ? v.online_asr : defaultAsr();
       await api('POST', '/api/projects', { filename: file, name: v.name.trim() || stripExt(file), language: v.language, speakers: v.speakers, quality: v.quality, laugh: v.laugh, ui_lang: window.VT_I18N?.lang, category: v.category || null, reftext: v.reftext || null, online: true, online_asr: asr });
@@ -946,7 +947,7 @@ function renderProjects(st) {
   [...(st.jobs.running || []), ...st.jobs.pending].forEach(j => { if (!jobsByProject[j.project]) jobsByProject[j.project] = j; });
   const shown = viewProjects(st.projects, st.order);
   const cats = st.categories || [];
-  const sig = JSON.stringify([shown, cats, Object.values(jobsByProject).map(j => [j.id, j.state, j.step])]);
+  const sig = JSON.stringify([shown, cats, onlineReady(), Object.values(jobsByProject).map(j => [j.id, j.state, j.step])]);
   if (sig === projectSig) { updateProjectProgress(jobsByProject); return; }
   projectSig = sig;
   $('#projectCount').textContent = shown.length === st.projects.length ? st.projects.length : `${shown.length} / ${st.projects.length}`;
@@ -1300,6 +1301,7 @@ projectEl.addEventListener('click', async e => {
   if (e.target.closest('.goto-online')) { openSettings('online'); return; }
   if (e.target.closest('.retry-local') || e.target.closest('.retry-online')) {
     const on = !!e.target.closest('.retry-online');
+    if (!await preflight('process', { pid: id, quality: retryQuality[id] || $('.retry-q', it)?.value, device: on ? 'online' : 'auto' })) return;
     try {
       await api('POST', `/api/projects/${encodeURIComponent(id)}/reprocess`, { online: on, quality: retryQuality[id] || $('.retry-q', it)?.value });
       toast(on ? tf('Online rechnen gestartet: {}.', onlineSummary()) : 'Verarbeitung neu gestartet.'); projectSig = ''; refreshState();

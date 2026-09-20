@@ -2,6 +2,7 @@
 import json
 import re
 import shutil
+import threading
 import time
 import unicodedata
 import uuid
@@ -343,14 +344,6 @@ def process(pid, report):
     if info["audio_codec"] is None:
         raise RuntimeError("Das Video hat keine Tonspur.")
     media.extract_audio(src, d / "audio.wav")
-    if media.browser_playable(info, src):
-        data["preview"] = data["source"]
-    else:
-        report("Vorbereiten", 0.1, "Vorschau-Video erzeugen")
-        media.make_preview(src, d / "vorschau.mp4", info["duration"],
-                           lambda p: report("Vorbereiten", 0.1 + 0.9 * p, "Vorschau-Video erzeugen"))
-        data["preview"] = "vorschau.mp4"
-    save(pid, data)
 
     # Online rechnen: Trennung und/oder Spracherkennung bei Gratis-Diensten (je nachdem, was eingerichtet ist)
     online_ready = None
@@ -361,19 +354,49 @@ def process(pid, report):
             raise online.OnlineError("Online rechnen ist nicht eingerichtet. Richte es unter Einstellungen → Online rechnen "
                                      "ein oder rechne auf diesem PC.", "online_setup")
         data["online"] = {"separate": "mvsep" if online_ready["separate"] else None, "transcribe": online_ready["transcribe"]}
-        save(pid, data)
+
+    preview_thread, preview_error = None, []
+    preview_tmp = d / "vorschau.part.mp4"
+    if media.browser_playable(info, src):
+        data["preview"] = data["source"]
+    elif online_ready and online_ready["separate"]:
+        # Die Vorschau entsteht, während MVSEP wartet und trennt: Der PC hat in der Zeit sonst nichts zu tun
+        def _preview():
+            try:
+                media.make_preview(src, preview_tmp, info["duration"], lambda p: None)
+            except Exception as e:  # noqa: BLE001
+                preview_error.append(e)
+        preview_thread = threading.Thread(target=_preview, daemon=True)
+        preview_thread.start()
+    else:
+        report("Vorbereiten", 0.1, "Vorschau-Video erzeugen")
+        media.make_preview(src, d / "vorschau.mp4", info["duration"],
+                           lambda p: report("Vorbereiten", 0.1 + 0.9 * p, "Vorschau-Video erzeugen"))
+        data["preview"] = "vorschau.mp4"
+    save(pid, data)
 
     # 2) Stimmen trennen
-    if online_ready and online_ready["separate"]:
-        report("Stimmen trennen", 0, "Tonspur wird zu MVSEP hochgeladen")
-        online.separate(d / "audio.wav", d, lambda p, msg: report("Stimmen trennen", p, msg))
-    else:
-        report("Stimmen trennen", 0, "Modell laden (beim ersten Mal Download ~600 MB)")
-        transcribe.unload()
-        separate.separate(d / "audio.wav", d, lambda p: report("Stimmen trennen", p, "Stimmen vom Hintergrund trennen"),
-                          overlap=config.quality(quality)["overlap"])
+    try:
+        if online_ready and online_ready["separate"]:
+            report("Stimmen trennen", 0, "Tonspur wird zu MVSEP hochgeladen")
+            online.separate(d / "audio.wav", d, lambda p, msg: report("Stimmen trennen", p, msg))
+        else:
+            report("Stimmen trennen", 0, "Modell laden (beim ersten Mal Download ~600 MB)")
+            transcribe.unload()
+            separate.separate(d / "audio.wav", d, lambda p: report("Stimmen trennen", p, "Stimmen vom Hintergrund trennen"),
+                              overlap=config.quality(quality)["overlap"])
+    finally:
+        if preview_thread and preview_thread.is_alive():
+            report("Stimmen trennen", 0.99, "Vorschau-Video erzeugen")
+            preview_thread.join(timeout=1800)   # nie ohne: sonst schreibt ffmpeg weiter, wenn hier etwas schiefgeht
     media.encode_opus(d / "stimmen.wav", d / "stimmen.ogg")
     media.encode_opus(d / "hintergrund.wav", d / "hintergrund.ogg")
+    if preview_thread:
+        if preview_error:
+            raise preview_error[0]
+        preview_tmp.replace(d / "vorschau.mp4")   # erst fertig, dann sichtbar
+        data["preview"] = "vorschau.mp4"
+        save(pid, data)
 
     # 3) Sprache erkennen
     voc16 = media.load_mono(d / "stimmen.wav")

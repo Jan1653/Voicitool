@@ -291,6 +291,8 @@ def _check_stall(job):
                                                  "(z. B. Spiele) oder brich ab und rechne auf dem Prozessor."}
         elif now - alive > 60:
             warn = {"code": "frozen", "text": f"Die Verarbeitung reagiert seit {system.fmt_dur(now - alive)} nicht mehr."}
+        elif (job.get("estimate") or {}).get("online") and job["step"] in ("Stimmen trennen", "Sprache erkennen"):
+            warn = None   # Warteschlange beim Online-Dienst: dauert schwankend lange, der PC rechnet dabei nicht
         else:
             expected = dict((job.get("estimate") or {}).get("steps") or []).get(job["step"])
             in_step = now - (job.get("step_started") or job["started"])
@@ -350,10 +352,11 @@ def _job_device(pid):
         return system.device()
     dev = system.device(settings)
     if dev == "gpu" and settings.get("online"):
-        # Online rechnen, Grafikkarte schon stark belegt (z. B. ein Spiel): Sprecher und Lachen auf dem Prozessor,
-        # sonst drängeln sie sich mit dem Spiel um den Grafikspeicher und brauchen ein Vielfaches
+        # Online rechnen: Sprecher und Lachen laufen lokal und brauchen zusammen etwa 1 GB Grafikspeicher.
+        # Nur wenn der knapp wird (z. B. ein Spiel läuft), auf den Prozessor ausweichen. Dort ist die
+        # Lachererkennung rund 20 Mal langsamer, deshalb erst bei wirklich vollem Speicher.
         gpu = system.nvidia()
-        if gpu and gpu.get("vram_total") and gpu["vram_used"] / gpu["vram_total"] > 0.5:
+        if gpu and gpu.get("vram_free") is not None and gpu["vram_free"] < 1.5:
             dev = "cpu"
     return dev
 

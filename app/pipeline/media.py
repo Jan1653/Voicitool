@@ -111,11 +111,16 @@ def make_preview(src, dst, duration, on_progress):
                 "-vf", "scale=-2:'trunc(min(720,ih)/2)*2'", *venc, "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-movflags", "+faststart", str(dst)]
 
-    if has_encoder("h264_nvenc"):
+    # Grafikkarte kodieren lassen, wenn sie kann: NVIDIA, sonst Intel (viele Notebooks), sonst AMD, sonst Prozessor
+    for name, venc in (("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "26"]),
+                       ("h264_qsv", ["-c:v", "h264_qsv", "-preset", "faster", "-global_quality", "26"]),
+                       ("h264_amf", ["-c:v", "h264_amf", "-quality", "speed", "-rc", "cqp", "-qp_i", "26", "-qp_p", "26"])):
+        if not has_encoder(name):
+            continue
         try:
-            return run_with_progress(build(["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "26"]), duration, on_progress)
+            return run_with_progress(build(venc), duration, on_progress)
         except RuntimeError:
-            pass  # keine NVIDIA-Karte / NVENC nicht nutzbar -> CPU
+            Path(dst).unlink(missing_ok=True)   # halbe Datei aus dem Fehlversuch
     run_with_progress(build(["-c:v", "libx264", "-preset", "veryfast", "-crf", "24"]), duration, on_progress)
 
 
