@@ -2238,12 +2238,12 @@ $('#btnSessionVideo').onclick = () => pickFromGame(
     return data.sessions.map(s => ({
       html: `<b data-nolang>${esc(s.pack || tf('Pack unbekannt'))}</b>
         <span class="muted small" data-nolang>${esc(s.label || '')}</span>
-        <span class="muted small">${esc(tf('{} Aufnahmen', s.takes))} · ${esc(s.kind === 'multi' ? tf('zusammen') : tf('allein'))}</span>
+        <span class="muted small">${esc(tf('{} Aufnahmen', s.takes))}</span>
         ${s.video ? `<span class="pill ok small">${esc(tf('exportiert'))}</span>` : ''}`,
       search: `${s.pack || ''} ${s.label || ''}`,
       info: `<b data-nolang>${esc(s.pack || tf('Pack unbekannt'))}</b>`
         + infoRow('Aufnahmen', s.takes)
-        + infoRow('Aufgenommen', s.kind === 'multi' ? tf('zusammen mit Freunden') : tf('allein'))
+        + infoRow('Gespeichert in', s.kind === 'multi' ? tf('Mehrspieler-Aufnahmen') : tf('Eigene Aufnahmen'))
         + (s.when ? infoRow('Wann', whenText(s.when)) : '')
         + (s.label ? infoRow('Ordner', s.label) : '')
         + (s.video ? `<div style="margin-top:6px">${esc(tf('Schon exportiert'))}<br><code data-nolang>${esc(s.video)}</code></div>` : '')
@@ -3920,8 +3920,9 @@ function renderExportChecks() {
   if (!lines.length) out.push(row('warn', 'warning', 'Keine Zeilen vorhanden.'));
   const rt = S.p.reftext, rep = rt?.report;
   if (rt && rep && !rep.used) {
+    const share = rep.share == null ? '' : ' ' + tf('Nur {} % der erkannten Wörter standen im Text.', Math.round(rep.share * 100));
     out.push(row('warn', 'warning', esc(tf('Der vorgegebene Text wurde nicht verwendet: {}',
-      tf(rep.reason || 'Es war zu wenig zuzuordnen.'))) + ' ' + esc(tf('Prüfe, ob er zu diesem Video gehört, und starte die Verarbeitung neu.'))));
+      tf(rep.reason || 'Es war zu wenig zuzuordnen.')) + share) + ' ' + esc(tf('Prüfe, ob er zu diesem Video gehört, und starte die Verarbeitung neu.'))));
   } else if (rt && rep && rep.used) {
     out.push(row('ok', 'check-circle', esc(tf('Vorgegebener Text übernommen: {} Wörter berichtigt, {} ergänzt.', rep.replaced || 0, rep.inserted || 0))));
     if (rep.named) out.push(row('ok', 'user', esc(tf('Namen aus dem Text übernommen: {} Figuren.', rep.named))));

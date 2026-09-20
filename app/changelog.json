@@ -1,5 +1,18 @@
 [
   {
+    "build": 31,
+    "date": "2026-09-20",
+    "changes": [
+      "Pasting a subtitle file as the provided text works now. Before, the timestamps and cue numbers ended up as words in the lines, which made the result worse than using no text at all.",
+      "The same for text with HTML characters, with line numbers, with \"PETER:\" and no space after the colon, and for stage directions in asterisks. Measured on Verity BE MY FRIEND, all five cases went from between 1 and 37 percent word error to zero.",
+      "A partial text is accepted now. If you only paste the chorus, Voicitool uses it as long as most of it shows up in the video. Before it said the text did not fit.",
+      "If the text really does not fit, the message now says how much of it matched.",
+      "Missing words are filled in more often: on 27 reference packs the missed lines went from 34 to 23.",
+      "Lines no longer end with a comma or a dash.",
+      "Recordings from the game no longer claim they were made alone or together. They just say which folder of the game they come from, because the game stores them by role in the session."
+    ]
+  },
+  {
     "build": 30,
     "date": "2026-09-20",
     "changes": [

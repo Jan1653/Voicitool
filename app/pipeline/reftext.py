@@ -12,6 +12,7 @@ Jede Zeile des vorgegebenen Texts endet mit einer Zeilengrenze (Liedzeile = eige
 Steht im Text, wer singt oder spricht („[Verse 2: Natalia]“, „PETER: Hallo“), wird der Name gemerkt und
 später als Name der Figur vorgeschlagen.
 """
+import html
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -27,13 +28,17 @@ SECTION_WORD = re.compile(r"\b(verse|chorus|refrain|bridge|intro|outro|hook|pre-
 MANY = re.compile(r"\s(?:&|\+|,|und|and|con|with|feat\.?|x)\s", re.I)   # mehrere Namen: dann kein Hinweis
 LIST_NO = re.compile(r"^\s*\d{1,3}[.)]\s+(?=\S)")           # „12. “ am Zeilenanfang (nummerierte Liedtexte)
 BRACKETS = re.compile(r"\[[^\]]*\]")           # Regieanweisungen, Abschnitte: [Chorus], [lacht]
-SPEAKER = re.compile(r"^\s*([\w .'\-]{1,30}):\s+")   # „Peter: Hallo“ im Drehbuch
+SPEAKER = re.compile(r"^\s*([\w .'\-]{1,30}):\s*(?=\S)")   # „Peter: Hallo“ im Drehbuch, auch ohne Leerzeichen
+SRT_ARROW = re.compile(r"\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3}\s*-->")   # Untertitel-Datei eingefügt
+BARE_NO = re.compile(r"^\s*\d{1,3}(?!\S)\s*")        # „12 Text“ ohne Punkt: Zeilennummer mancher Liedtext-Seiten
+ONLY_NOTE = re.compile(r"^\s*\*[^*]*\*\s*$")          # ganze Zeile in Sternen: Regieanweisung
 NOT_A_NAME = {"both", "all", "alle", "everyone", "everybody", "together", "zusammen", "chorus", "chor",
               "refrain", "ensemble", "cast", "group", "gruppe", "beide", "tutti", "todos", "coro",
               "everyone else", "alle zusammen", "all together"}
 MIN_MATCH = 0.3        # so viel des Erkannten muss wiederzufinden sein, sonst passt der Text nicht zum Video
 MIN_WORD_GAP = 0.12    # Mindestzeit je eingefügtem Wort, wenn Whisper dort nichts gehört hat (s)
-MIN_VOICED = 0.5       # eingefügt wird nur, wo die Stimmen-Spur so viel Stimme zeigt (sonst steht das Wort nur im Text)
+MIN_VOICED = 0.3       # eingefügt wird nur, wo die Stimmen-Spur so viel Stimme zeigt (sonst steht das Wort nur im Text)
+MIN_OF_REF = 0.6       # oder: so viel des vorgegebenen Texts wurde wiedergefunden (Teiltext, z. B. nur der Refrain)
 # In Klammern: gesungener Hintergrund („(Merci)“) bleibt als Wort, echte Anmerkungen fallen weg
 NOTE = re.compile(r"\((?:[^)]*\b(?:laugh|lach|kicher|chuckl|giggl|sigh|seufz|scream|schrei|gasp|grunt|cough|hust|whisper|flüster|"
                   r"music|musik|applaus|applause|instrumental|singing|sings|singt)[^)]*)\)", re.I)
@@ -54,7 +59,7 @@ def _norm(tok):
     return re.sub(r"[^\w']", "", t).strip("'")
 
 
-def _who(name):
+def _who(name, strict=False):
     """Namen aus einer Abschnittsmarke oder einem Sprecher-Vorsatz säubern. Mehrere Namen: kein Hinweis."""
     name = re.sub(r"\s+", " ", (name or "").strip(" .:-–—'\"“”„"))
     if not name or MANY.search(name) or not any(ch.isalpha() for ch in name):
@@ -63,6 +68,8 @@ def _who(name):
         return None
     if name.casefold() in NOT_A_NAME:
         return None   # „Both“, „Alle“: sagt nicht, wer singt
+    if strict and not (name.isupper() or all(w[:1].isupper() for w in name.split())):
+        return None   # „(door slams)“ ist eine Regieanweisung, kein Name
     return name.title() if name.isupper() else name   # „TELEMACHUS“ -> „Telemachus“
 
 
@@ -71,13 +78,31 @@ def clean(raw):
     return [line for line, _ in clean_lines(raw)]
 
 
+def prepare(raw):
+    """Eingefügten Text geradeziehen, bevor er zerlegt wird: Untertitel-Dateien, HTML-Zeichen, Zeilennummern."""
+    raw = (raw or "").replace("\r", "")
+    if len(SRT_ARROW.findall(raw)) >= 2:
+        # Ganze .srt oder .vtt eingefügt: ohne Aufbereitung landen Zeiten und Nummern als Wörter im Pack
+        try:
+            from app.pipeline import textsources
+            raw = textsources.subs_to_text(raw)
+        except Exception:
+            pass
+    if "&" in raw:
+        raw = html.unescape(html.unescape(raw))   # manche Seiten kodieren zweimal (&amp;#39;)
+    body = [l for l in raw.split("\n") if l.strip()]
+    if body and sum(1 for l in body if BARE_NO.match(l)) >= 0.6 * len(body):
+        raw = "\n".join(BARE_NO.sub("", l) if l.strip() else l for l in raw.split("\n"))
+    return raw
+
+
 def clean_lines(raw):
     """Vorgegebenen Text in Zeilen zerlegen: Zeitmarken, Abschnittsnamen, Klammer-Anweisungen und
     Sprechernamen am Zeilenanfang fallen weg, leere Zeilen auch.
     -> [(Zeile, wer sie singt oder spricht oder None)]"""
     lines = []
     who = None
-    for line in (raw or "").replace("\r", "").split("\n"):
+    for line in prepare(raw).split("\n"):
         line = LRC_TAG.sub("", line)
         if not line.strip():
             continue
@@ -88,11 +113,13 @@ def clean_lines(raw):
                 # „[Verse 2: Natalia]“ nennt den Namen hinter dem Doppelpunkt, „[Bridge]“ nennt keinen
                 who = _who(inside.split(":", 1)[1]) if ":" in inside else None
             else:
-                who = _who(inside.split(":", 1)[-1])   # „[TELEMACHUS]“ ist selbst der Name
+                who = _who(inside.split(":", 1)[0], strict=True)   # „[TELEMACHUS]“ ist selbst der Name
+            continue
+        if ONLY_NOTE.match(line):
             continue
         line = LIST_NO.sub("", line)
         spk = SPEAKER.match(line)
-        here = _who(spk.group(1)) if spk else who
+        here = (_who(spk.group(1)) or who) if spk and any(c.isalpha() for c in spk.group(1)) else who
         line = BRACKETS.sub(" ", line)
         line = NOTE.sub(" ", line)
         line = line.replace("(", " ").replace(")", " ")
@@ -156,7 +183,9 @@ def apply(words, raw_text, env=None):
     ops = SequenceMatcher(None, wn, rn, autojunk=False).get_opcodes()
     matched = sum(i2 - i1 for tag, i1, i2, _, _ in ops if tag == "equal")
     report["matched"] = matched
-    if matched < MIN_MATCH * len(speech):
+    report["share"] = round(matched / max(1, len(speech)), 3)        # so viel des Gehörten stand im Text
+    report["share_ref"] = round(matched / max(1, len(ref)), 3)       # so viel des Texts kam im Video vor
+    if matched < MIN_MATCH * len(speech) and matched < MIN_OF_REF * len(ref):
         report["reason"] = "Der Text passt nicht zu dem, was im Video gesprochen wird."
         return words, report
     eq = [k for k, op in enumerate(ops) if op[0] == "equal"]

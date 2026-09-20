@@ -164,6 +164,7 @@ def build_lines(words, pause_split=0.8, target_len=6.0, max_len=10.0, sentence_p
     for ln in lines:
         text = "".join(w["w"] for w in ln["words"]).strip()
         text = re.sub(r"\s+", " ", text)
+        text = re.sub(r"[,;:\-–]+$", "", text).strip() or text   # Zeilen enden nicht mit Komma oder Strich
         if re.sub(r"[^\w\s]", "", text.lower()).strip() in OUTRO_PHRASES:
             continue   # reine Abspann-Floskel, die die Texterkennung gern in Musik hineinhört
         out.append({"start": ln["words"][0]["s"], "end": ln["words"][-1]["e"], "text": text, "spk": ln["spk"]})
