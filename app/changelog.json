@@ -1,5 +1,12 @@
 [
   {
+    "build": 25,
+    "date": "2026-09-20",
+    "changes": [
+      "Lines now end closer to the last word instead of running about a tenth of a second too long. Measured against 27 human made packs, the lines match theirs better and cut off slightly fewer word endings. This applies to newly processed videos."
+    ]
+  },
+  {
     "build": 24,
     "date": "2026-09-20",
     "changes": [
