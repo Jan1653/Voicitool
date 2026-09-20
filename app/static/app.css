@@ -351,6 +351,11 @@ body.resizing, body.resizing * { user-select: none; cursor: inherit; }
 .line.sel { border-color: var(--accent); border-left-color: var(--c, var(--accent)); background: var(--sel); }
 /* mit Strg dazugewaehlt: heller Rand, aber keine Knopfleiste */
 .line.msel { background: var(--sel); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+/* Leiste, solange mehrere Zeilen ausgewählt sind */
+.multi-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; padding: 6px 10px; font-size: 13px;
+  background: var(--sel); border: 1px solid var(--accent); border-radius: 8px; }
+.multi-bar select { max-width: 200px; }
+.multi-bar #multiCount { flex: 1; }
 .line-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .idx { color: var(--muted); font-size: 11px; min-width: 22px; font-variant-numeric: tabular-nums; }
 .char-select { max-width: 160px; padding: 2px 6px !important; font-size: 12px; border-color: var(--c, var(--line)) !important; }

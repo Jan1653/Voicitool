@@ -2834,8 +2834,40 @@ function markSelection() {
     el.classList.toggle('sel', el.dataset.id === S.sel);
     el.classList.toggle('msel', el.dataset.id !== S.sel && isSel(el.dataset.id));
   });
+  renderMultiBar();
   drawTimeline();
 }
+
+/* Leiste über der Liste: zeigt die Auswahl und erlaubt einen Sprecher für alle auf einmal.
+   Genau dafür da, wenn zwei gleichzeitig singen: Zeilen mit Strg auswählen, zweiten Sprecher dazu. */
+function renderMultiBar() {
+  const bar = $('#multiBar'); if (!bar) return;
+  const n = selectedLines().length;
+  bar.hidden = n < 2;
+  if (bar.hidden) return;
+  $('#multiCount').textContent = tf('{} Zeilen ausgewählt', n);
+  const sel = $('#multiChar');
+  sel.innerHTML = `<option value="">${esc(tf('+ Sprecher für alle'))}</option>`
+    + S.p.characters.map(c => `<option data-nolang value="${c.id}">${esc(c.name)}</option>`).join('');
+}
+$('#multiClear').onclick = () => { S.multi.clear(); markSelection(); };
+$('#multiChar').onchange = e => {
+  const cid = e.target.value;
+  e.target.value = '';
+  if (!cid) return;
+  const lines = selectedLines();
+  if (!lines.length) return;
+  snapshot();
+  let n = 0;
+  for (const l of lines) {
+    if (l.chars.includes(cid)) continue;
+    l.chars = [...l.chars, cid];
+    n++;
+  }
+  afterChange(null, true);
+  markSelection();
+  toast(tf('{} Zeilen geändert.', n));
+};
 function toggleSel(id) {
   if (!S.sel || S.sel === id) return;
   S.multi.has(id) ? S.multi.delete(id) : S.multi.add(id);
@@ -2849,6 +2881,7 @@ function selectLine(id, { seekTo = false, scroll = true, reveal = true, keep = f
     el.classList.toggle('sel', el.dataset.id === id);
     el.classList.toggle('msel', el.dataset.id !== id && isSel(el.dataset.id));
   });
+  renderMultiBar();
   const l = lineById(id);
   if (!l) return;
   if (seekTo) seek(l.start);
@@ -2991,14 +3024,14 @@ function commit(mutate, l, { anchor } = {}) {
 }
 
 /** Neue Zeile einfügen (eingepasst). */
-function insertLine(l, anchor) {
+function insertLine(l, anchor, { quiet = false } = {}) {
   const r = fitLine(l, anchor);
-  if (r === 'blocked') { toast(BLOCK_MSG, true); return false; }
-  snapshot();
+  if (r === 'blocked') { if (!quiet) toast(BLOCK_MSG, true); return false; }
+  if (!quiet) snapshot();   // beim Einfügen mehrerer Zeilen reicht ein Stand für alle
   S.p.lines.push(l);
   afterChange(null);
-  selectLine(l.id);
-  if (r === 'trimmed') toast(TRIM_MSG);
+  if (!quiet) selectLine(l.id);
+  if (r === 'trimmed' && !quiet) toast(TRIM_MSG);
   return true;
 }
 
@@ -3321,18 +3354,38 @@ $('#btnLaughs').onclick = async () => {
 };
 
 /* Kopieren / Einfügen */
+/* Kopieren nimmt die ganze Strg-Auswahl mit. Gemerkt werden die Abstände zur ersten Zeile,
+   beim Einfügen liegt die erste am Playhead und die anderen im selben Abstand dahinter. */
 function copyLine(l, cut = false) {
-  S.clip = { text: l.text, chars: [...l.chars], len: l.end - l.start };
-  try { navigator.clipboard?.writeText(l.text); } catch { /* egal */ }
-  if (cut) deleteLine(l, false);
-  toast(cut ? 'Zeile ausgeschnitten.' : 'Zeile kopiert. Mit Strg+V am Playhead einfügen.', false, 2000);
+  const sel = selectedLines();
+  const lines = (sel.length > 1 && isSel(l.id) ? sel : [l]).slice().sort((a, b) => a.start - b.start);
+  const t0 = lines[0].start;
+  S.clip = { items: lines.map(x => ({ text: x.text, chars: [...x.chars], off: x.start - t0, len: x.end - x.start })) };
+  try { navigator.clipboard?.writeText(lines.map(x => x.text).join('\n')); } catch { /* egal */ }
+  if (cut) { for (const x of lines.slice().reverse()) deleteLine(x, false); }
+  const n = lines.length;
+  toast(cut ? (n > 1 ? tf('{} Zeilen ausgeschnitten.', n) : tf('Zeile ausgeschnitten.'))
+            : (n > 1 ? tf('{} Zeilen kopiert. Mit Strg+V am Playhead einfügen.', n)
+                     : tf('Zeile kopiert. Mit Strg+V am Playhead einfügen.')), false, 2500);
 }
 function pasteAt(t, charId) {
-  if (!S.clip) return toast('Nichts kopiert (Zeile auswählen, Strg+C).', true);
-  let chars = charId ? [charId] : S.clip.chars.filter(c => charById(c));
-  if (!chars.length) chars = [S.p.characters[0]?.id].filter(Boolean);
-  const l = { id: newId(), start: r3(t), end: r3(Math.min(S.p.duration, t + S.clip.len)), text: S.clip.text, chars };
-  insertLine(l, t + 0.001);
+  if (!S.clip?.items?.length) return toast('Nichts kopiert (Zeile auswählen, Strg+C).', true);
+  const many = S.clip.items.length > 1;
+  if (many) snapshot();   // ein Rückgängig für den ganzen Block
+  const fresh = [];
+  let done = 0, blocked = 0;
+  for (const it of S.clip.items) {
+    let chars = charId ? [charId] : it.chars.filter(c => charById(c));
+    if (!chars.length) chars = [S.p.characters[0]?.id].filter(Boolean);
+    const s = r3(Math.min(t + it.off, Math.max(0, S.p.duration - it.len)));
+    const l = { id: newId(), start: s, end: r3(Math.min(S.p.duration, s + it.len)), text: it.text, chars };
+    if (insertLine(l, s + 0.001, { quiet: many })) { done++; fresh.push(l.id); } else blocked++;
+  }
+  if (many) {
+    if (fresh.length) { S.sel = fresh[0]; S.multi = new Set(fresh.slice(1)); markSelection(); }
+    toast(blocked ? tf('{} Zeilen eingefügt, {} passten nicht.', done, blocked) : tf('{} Zeilen eingefügt.', done),
+          !!blocked && !done, 4000);
+  }
 }
 
 /* Text neuer Zeilen automatisch erkennen */

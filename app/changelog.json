@@ -1,5 +1,13 @@
 [
   {
+    "build": 35,
+    "date": "2026-09-20",
+    "changes": [
+      "Copy, cut and paste now take every line you selected with Ctrl, not just the first one. The spacing between them is kept, so pasting puts the first line at the playhead and the rest behind it. One undo takes the whole block back.",
+      "A bar above the line list shows how many lines are selected and lets you add a speaker to all of them at once. That is what you want for a duet: pick the lines where both sing, add the second voice, done."
+    ]
+  },
+  {
     "build": 34,
     "date": "2026-09-20",
     "changes": [
