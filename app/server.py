@@ -36,6 +36,10 @@ def _background_maintenance():
         except Exception:
             traceback.print_exc()
     threading.Thread(target=work, daemon=True).start()
+    try:
+        config.tidy_export()   # alte Ausgaben in Zips, Ordner und Exportierte Videos einsortieren
+    except Exception:
+        traceback.print_exc()
     from app import system
     system.gpu_check()   # passt PyTorch zur Grafikkarte? (eigener Prozess, Ergebnis wird gemerkt)
     system.update_shortcuts(config.ui_lang())
@@ -511,6 +515,20 @@ def download_video(body: dict = Body(...)):
     return {"job": jobs.submit("download", "", run, "Video laden", lane="net")}
 
 
+@app.put("/api/textsources/inbox")
+def textsources_inbox_set(body: dict = Body(...)):
+    """Vorgegebenen Text am Video im Eingang merken, damit er einen Neustart übersteht."""
+    from app.pipeline import textsources
+    file = str(body.get("file") or "")
+    project.inbox_file(file)   # prüft, dass die Datei im Eingang liegt
+    text = str(body.get("text") or "")[:400000]
+    if text.strip():
+        textsources.remember_reftext(file, text, str(body.get("source") or "")[:200])
+    else:
+        textsources.forget_reftext(file)
+    return {"ok": True}
+
+
 @app.get("/api/textsources/inbox")
 def textsources_inbox(file: str):
     """Beim Herunterladen mitgeholte Untertitel einer Datei im Eingang."""
@@ -616,8 +634,9 @@ def game_import(body: dict = Body(...)):
     """Pack als Projekt übernehmen (kein KI-Schritt, läuft neben anderen Aufträgen)."""
     from app.pipeline import packs
     name = str(body.get("pack") or "")
+    root = config.game_packs_dir().resolve()
     src = (config.game_packs_dir() / name).resolve()
-    if not name or src.parent != config.game_packs_dir().resolve() or not src.is_dir():
+    if not name or root not in src.parents or not src.is_dir():
         raise HTTPException(404, "Pack nicht gefunden")
 
     def run(job, report):
@@ -633,7 +652,8 @@ def game_sessions():
     """Aufnahme-Sitzungen im Spiel (allein und gemeinsam aufgenommen)."""
     from app.pipeline import packs
     try:
-        return {"sessions": packs.list_sessions(), "packs": [p["name"] for p in packs.list_packs()]}
+        return {"sessions": packs.list_sessions(), "packs": [p["name"] for p in packs.list_packs()],
+                "dir": str(packs.game_root())}
     except Exception as e:  # noqa: BLE001
         traceback.print_exc()
         raise HTTPException(400, f"Aufnahmen konnten nicht gelesen werden: {e}")
@@ -840,6 +860,7 @@ def clear_storage(body: dict = Body(default={})):
 def open_named_folder(body: dict = Body(...)):
     """Einen der Voicitool-Ordner im Explorer öffnen."""
     folders = {"projects": config.PROJECTS_DIR, "export": config.EXPORT_DIR, "inbox": config.INBOX_DIR,
+               "zips": config.EXPORT_ZIPS, "packs": config.EXPORT_PACKS, "videos": config.EXPORT_VIDEOS,
                "models": config.MODELS_DIR, "logs": config.DATA_DIR / "logs", "root": config.ROOT,
                "game": config.game_packs_dir()}
     target = folders.get(body.get("which"))

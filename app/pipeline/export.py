@@ -140,8 +140,8 @@ def export_pack(pid, report, install=False, overwrite_game=False):
         return _export_pack(pid, report, install, overwrite_game)
     except BaseException:
         # Abbruch/Fehler: halbfertige Dateien entfernen
-        shutil.rmtree(config.EXPORT_DIR / (folder + ".tmp"), ignore_errors=True)
-        for f in (config.EXPORT_DIR / f"{folder}.zip.tmp", project.project_dir(pid) / "dub_video.part.ogv"):
+        shutil.rmtree(config.EXPORT_PACKS / (folder + ".tmp"), ignore_errors=True)
+        for f in (config.EXPORT_ZIPS / f"{folder}.zip.tmp", project.project_dir(pid) / "dub_video.part.ogv"):
             f.unlink(missing_ok=True)
         raise
 
@@ -192,8 +192,8 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
     if install and game_target.exists() and not overwrite_game:
         raise FileExistsError(str(game_target))
 
-    out = config.EXPORT_DIR / folder
-    tmp = config.EXPORT_DIR / (folder + ".tmp")
+    out = config.EXPORT_PACKS / folder
+    tmp = config.EXPORT_PACKS / (folder + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
     src = d / data["source"]
@@ -321,7 +321,7 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
     shutil.rmtree(out, ignore_errors=True)
     tmp.replace(out)
     report("ZIP packen", 0, "ZIP erstellen")
-    zip_path = config.EXPORT_DIR / f"{folder}.zip"
+    zip_path = config.EXPORT_ZIPS / f"{folder}.zip"
     zip_tmp = zip_path.with_suffix(".zip.tmp")
     files = sorted(out.iterdir())
     with zipfile.ZipFile(zip_tmp, "w") as z:
@@ -385,7 +385,7 @@ def export_category(cid, report, install=False, overwrite_game=False, only=None)
     if done:
         report("ZIP packen", 0, "ZIP erstellen")
         name = project.slugify(cat["name"])
-        zip_path = config.EXPORT_DIR / f"{name}.zip"
+        zip_path = config.EXPORT_ZIPS / f"{name}.zip"
         zip_tmp = zip_path.with_suffix(".zip.tmp")
         with zipfile.ZipFile(zip_tmp, "w") as z:
             z.writestr("_So installieren.txt", INSTALL_NOTE)

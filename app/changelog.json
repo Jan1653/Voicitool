@@ -1,5 +1,17 @@
 [
   {
+    "build": 28,
+    "date": "2026-09-20",
+    "changes": [
+      "From the game: Voicitool now also finds packs whose lines are stored as .txt files and packs that sit inside a collection folder. Recordings that ended with \"the recordings do not match any line of this pack\" now work.",
+      "The picker for packs and recordings opens right away and fills in while it loads. Reading the recordings takes about a quarter of a second instead of eleven, and it shows the game folder. The finished video shows its full path.",
+      "The export folder is now sorted into \"Zips\", \"Ordner\" and \"Exportierte Videos\". What is already there is moved into place once.",
+      "Provided lyrics are now stored with the video in the inbox, so they survive a restart. The editor says whether they were used, and if they were not, why.",
+      "Pack import fixes: a pack video without an audio track no longer fails, a pack without any timestamp is rejected with a clear message, leftover entries no longer create empty lines, and icon, subtitle and description are taken over.",
+      "The texts of the new features are translated into all 26 languages."
+    ]
+  },
+  {
     "build": 27,
     "date": "2026-09-20",
     "changes": [

@@ -33,11 +33,15 @@ STATIC_DIR = APP_DIR / "static"
 INBOX_DIR = ROOT / "eingang"
 PROJECTS_DIR = ROOT / "projekte"
 EXPORT_DIR = ROOT / "export"
+# Der Export-Ordner ist in drei Teile sortiert: fertige ZIPs, die Pack-Ordner und die Videos aus Aufnahmen
+EXPORT_ZIPS = EXPORT_DIR / "Zips"
+EXPORT_PACKS = EXPORT_DIR / "Ordner"
+EXPORT_VIDEOS = EXPORT_DIR / "Exportierte Videos"
 MODELS_DIR = ROOT / "modelle"
 DATA_DIR = ROOT / "daten"      # Einrichtung, Fenster-Speicher, Logs
 TOOLS_DIR = ROOT / "tools"     # uv, Python, ffmpeg
 
-for _d in (INBOX_DIR, PROJECTS_DIR, EXPORT_DIR, MODELS_DIR, DATA_DIR):
+for _d in (INBOX_DIR, PROJECTS_DIR, EXPORT_DIR, EXPORT_ZIPS, EXPORT_PACKS, EXPORT_VIDEOS, MODELS_DIR, DATA_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 # Modelle landen im Tool-Ordner statt im Benutzerprofil
@@ -138,6 +142,31 @@ def ui_lang():
     """Sprache der Oberfläche: eigene Wahl aus den Einstellungen, sonst die von Windows."""
     lang = user_settings().get("ui_lang")
     return lang if lang in UI_LANGS else system_lang()
+
+
+def tidy_export():
+    """Einmalig: alte Ausgaben aus dem Export-Ordner in Zips, Ordner und Exportierte Videos einsortieren."""
+    import shutil
+    moved = 0
+    for item in list(EXPORT_DIR.iterdir()):
+        if item in (EXPORT_ZIPS, EXPORT_PACKS, EXPORT_VIDEOS) or item.name.endswith(".tmp"):
+            continue
+        if item.is_dir() and (item / "_pack_info.ini").exists():
+            target = EXPORT_PACKS / item.name
+        elif item.is_file() and item.suffix.lower() == ".zip":
+            target = EXPORT_ZIPS / item.name
+        elif item.is_file() and item.suffix.lower() in (".mp4", ".mkv", ".webm", ".mov"):
+            target = EXPORT_VIDEOS / item.name
+        else:
+            continue
+        try:
+            if target.exists():
+                continue
+            shutil.move(str(item), str(target))
+            moved += 1
+        except OSError:
+            pass
+    return moved
 
 
 def game_packs_dir():

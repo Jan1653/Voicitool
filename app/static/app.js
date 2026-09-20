@@ -876,10 +876,20 @@ inboxEl.addEventListener('click', async e => {
   if (e.target.closest('.open-models')) { openSettings(); return; }
   if (e.target.closest('.reftext-btn')) {
     const r = await openRefTextDialog(file, inboxForm[file]?.reftext);
-    if (r && inboxForm[file]) { inboxForm[file].reftext = r; inboxSig = ''; refreshState(); }
+    if (r && inboxForm[file]) {
+      inboxForm[file].reftext = r;
+      // am Video merken: sonst ist der Text nach einem Neustart weg, ohne dass es jemand bemerkt
+      api('PUT', '/api/textsources/inbox', { file, text: r.text, source: r.source }).catch(() => {});
+      inboxSig = ''; refreshState();
+    }
     return;
   }
-  if (e.target.closest('.reftext-clear')) { if (inboxForm[file]) delete inboxForm[file].reftext; inboxSig = ''; refreshState(); return; }
+  if (e.target.closest('.reftext-clear')) {
+    if (inboxForm[file]) delete inboxForm[file].reftext;
+    api('PUT', '/api/textsources/inbox', { file, text: '' }).catch(() => {});
+    inboxSig = ''; refreshState();
+    return;
+  }
   if (e.target.closest('.del-inbox')) {
     if (!await dialog({ title: tf('„{}" in den Papierkorb verschieben?', file), text: 'Du kannst es aus dem Papierkorb von Windows wiederherstellen.',
                        tone: 'danger', ok: 'In den Papierkorb' })) return;
@@ -2118,16 +2128,14 @@ async function maybeAskOnline() {
    Beides braucht keine KI: Das Pack bringt Zeilen, Sprecher und Zeiten schon mit, die Aufnahmen werden nur
    über den Hintergrund gelegt. */
 async function pickFromGame(title, text, load, render) {
-  let data;
-  try { data = await load(); } catch (e) { return toast(e.message, true, 6000); }
-  const items = render(data);
-  if (!items.length) return;
+  // Fenster sofort zeigen: Das Einlesen der Packs im Spiel dauert je nach Menge ein paar Sekunden
+  let items = [];
   const ov = document.createElement('div');
   ov.className = 'dlg-overlay';
   ov.innerHTML = `<div class="dlg wide" role="dialog" aria-modal="true">
     <div class="dlg-head"><div class="dlg-icon">${ic('gamepad')}</div>
       <div class="dlg-titles"><h2>${esc(tf(title))}</h2><p class="dlg-text">${esc(tf(text))}</p></div></div>
-    <div class="game-list">${items.map((it, i) => `<button class="game-item" data-i="${i}">${it.html}</button>`).join('')}</div>
+    <div class="game-list"><div class="set-note">${esc(tf('Wird geladen …'))}</div></div>
     <div class="dlg-actions"><button class="btn dlg-close">${esc(tf('Schließen'))}</button></div>`;
   document.body.appendChild(ov);
   const close = () => { ov.remove(); document.removeEventListener('keydown', onKey, true); };
@@ -2138,6 +2146,15 @@ async function pickFromGame(title, text, load, render) {
     const b = e.target.closest('.game-item');
     if (b) { close(); items[+b.dataset.i].run(); }
   });
+  let data;
+  try { data = await load(); } catch (e) { close(); return toast(e.message, true, 6000); }
+  if (!ov.isConnected) return;   // inzwischen geschlossen
+  items = render(data);
+  if (!items.length) return close();
+  $('.game-list', ov).innerHTML = items.map((it, i) => `<button class="game-item" data-i="${i}">${it.html}</button>`).join('');
+  if (data.dir) {
+    $('.dlg-text', ov).insertAdjacentHTML('afterend', `<p class="dlg-hint" data-nolang>${esc(data.dir)}</p>`);
+  }
 }
 
 $('#btnImportPack').onclick = () => pickFromGame(
@@ -2177,7 +2194,8 @@ $('#btnSessionVideo').onclick = () => pickFromGame(
           toast(tf('Video wird gebaut …'));
           const r = await waitJob(job);
           const dlg = await dialog({ title: tf('Video ist fertig'), icon: 'clapper',
-            html: `<b data-nolang>${esc(r.file.split(/[\\/]/).pop())}</b><br>${esc(tf('{} Aufnahmen eingesetzt.', r.lines))}`,
+            html: `<b data-nolang>${esc(r.file.split(/[\\/]/).pop())}</b><br>${esc(tf('{} Aufnahmen eingesetzt.', r.lines))}`
+              + `<br><code data-nolang>${esc(r.file)}</code>`,
             buttons: [{ label: 'Schließen', value: null }, { label: 'Im Ordner zeigen', value: 'open', kind: 'primary', main: true }] });
           if (dlg === 'open') api('POST', '/api/open', { path: r.file }).catch(e => toast(e.message, true));
         } catch (e) { toast(e.message, true, 8000); }
@@ -3782,6 +3800,13 @@ function renderExportChecks() {
   const link = (arr, label) => `<a data-goto="${arr[0].id}">${label}</a>`;
   const row = (cls, icon, html) => `<div class="${cls} chk">${ic(icon)}<span>${html}</span></div>`;
   if (!lines.length) out.push(row('warn', 'warning', 'Keine Zeilen vorhanden.'));
+  const rt = S.p.reftext, rep = rt?.report;
+  if (rt && rep && !rep.used) {
+    out.push(row('warn', 'warning', esc(tf('Der vorgegebene Text wurde nicht verwendet: {}',
+      tf(rep.reason || 'Es war zu wenig zuzuordnen.'))) + ' ' + esc(tf('Prüfe, ob er zu diesem Video gehört, und starte die Verarbeitung neu.'))));
+  } else if (rt && rep && rep.used) {
+    out.push(row('ok', 'check-circle', esc(tf('Vorgegebener Text übernommen: {} Wörter berichtigt, {} ergänzt.', rep.replaced || 0, rep.inserted || 0))));
+  }
   if (unnamed.length) out.push(row('warn', 'warning', `Noch nicht benannt: ${unnamed.map(c => esc(c.name)).join(', ')} (Tab „Charaktere")`));
   if (long.length) out.push(row('warn', 'warning', `${long.length} Zeile(n) länger als 60 s. Das Spiel lädt sie nicht, sie werden gekürzt. ${link(long, 'Erste zeigen')}`));
   if (noText.length) out.push(row('warn', 'warning', `${noText.length} Zeile(n) ohne Text. ${link(noText, 'Erste zeigen')}`));

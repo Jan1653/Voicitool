@@ -137,6 +137,16 @@ def remember_reftext(filename, text, source):
     SOURCES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf8")
 
 
+def forget_reftext(filename):
+    """Vorgegebenen Text einer Datei im Eingang wieder entfernen."""
+    try:
+        data = json.loads(SOURCES_FILE.read_text(encoding="utf8")) if SOURCES_FILE.exists() else {}
+    except Exception:
+        return
+    if (data.get(filename) or {}).pop("reftext", None) is not None:
+        SOURCES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf8")
+
+
 def files_with_reftext(files):
     """Welche dieser Dateien im Eingang haben mitgeholte Untertitel?"""
     try:
