@@ -1,5 +1,17 @@
 [
   {
+    "build": 27,
+    "date": "2026-09-20",
+    "changes": [
+      "New: edit a finished pack. \"From the game\" on the start page takes a dub pack from Choicer Voicer and turns it into a project with video, lines, speakers and timings. Nothing is recognized again, it takes a few seconds and needs no graphics card.",
+      "New: turn a recording session into a video. Pick a session you recorded, alone or with friends, and Voicitool lays the recordings over the pack video and saves one video file you can share.",
+      "Lines now end a bit sooner after the last word and speaker changes may move across slightly longer words. Measured on 28 human made packs, 10 packs got better and none got worse.",
+      "Lines that consist only of an outro phrase like \"thanks for watching\" are dropped. Speech recognition likes to hear those in music.",
+      "Fixed: cutting the video could lose repeats when the line they came from was cut away, could export at the wrong frame rate with duplicated frames, and let picture and sound drift apart by up to one frame per cut.",
+      "Fixed in the editor: moving a line sideways could silently give it to another speaker, splitting could create a line that is too short or has no text, splitting a line with repeats now gives the repeats their own recording, and deleting a line no longer leaves ghost repeats behind."
+    ]
+  },
+  {
     "build": 26,
     "date": "2026-09-20",
     "changes": [

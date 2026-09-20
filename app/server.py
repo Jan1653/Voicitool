@@ -598,6 +598,61 @@ def preflight(body: dict = Body(...)):
     raise HTTPException(400, "Unbekannter Bereich")
 
 
+# ---------------------------------------------------------------- Aus dem Spiel (Packs und Aufnahmen)
+@app.get("/api/game/packs")
+def game_packs():
+    """Fertige Packs im Spiel, zum Importieren und Bearbeiten."""
+    from app.pipeline import packs
+    try:
+        return {"packs": packs.list_packs(), "dir": str(config.game_packs_dir()),
+                "exists": config.game_packs_dir().exists()}
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        raise HTTPException(400, f"Pack-Ordner konnte nicht gelesen werden: {e}")
+
+
+@app.post("/api/game/import")
+def game_import(body: dict = Body(...)):
+    """Pack als Projekt übernehmen (kein KI-Schritt, läuft neben anderen Aufträgen)."""
+    from app.pipeline import packs
+    name = str(body.get("pack") or "")
+    src = (config.game_packs_dir() / name).resolve()
+    if not name or src.parent != config.game_packs_dir().resolve() or not src.is_dir():
+        raise HTTPException(404, "Pack nicht gefunden")
+
+    def run(job, report):
+        pid = packs.import_pack(src, body.get("name"), report, category=body.get("category"),
+                                ui_lang=body.get("ui_lang"))
+        return {"id": pid}
+
+    return {"job": jobs.submit("import", "", run, f"Pack übernehmen: {name}", lane="cpu")}
+
+
+@app.get("/api/game/sessions")
+def game_sessions():
+    """Aufnahme-Sitzungen im Spiel (allein und gemeinsam aufgenommen)."""
+    from app.pipeline import packs
+    try:
+        return {"sessions": packs.list_sessions(), "packs": [p["name"] for p in packs.list_packs()]}
+    except Exception as e:  # noqa: BLE001
+        traceback.print_exc()
+        raise HTTPException(400, f"Aufnahmen konnten nicht gelesen werden: {e}")
+
+
+@app.post("/api/game/session-video")
+def game_session_video(body: dict = Body(...)):
+    """Aufnahmen einer Sitzung über den Hintergrund legen und als Video schreiben."""
+    from app.pipeline import packs
+    sid = str(body.get("session") or "")
+    if sid.count("|") != 2:
+        raise HTTPException(400, "Unbekannte Aufnahme")
+
+    def run(job, report):
+        return packs.render_session(sid, body.get("pack"), report)
+
+    return {"job": jobs.submit("session", "", run, "Aufnahme als Video", lane="cpu")}
+
+
 @app.get("/api/models")
 def get_models():
     from app import models

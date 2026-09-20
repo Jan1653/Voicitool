@@ -94,7 +94,8 @@ def snap_speaker_changes(words, max_shift=2):
                 continue
             seg = words[min(i, j):max(i, j)]
             # nur verschieben, wenn die übersprungenen Wörter kurz sind und zu einem der beiden Sprecher gehören
-            if any(w["spk"] not in (old, new) for w in seg) or sum(w["e"] - w["s"] for w in seg) > 1.2:
+            # 1,2 -> 2,0 s (an 28 Packs gemessen): 1:1-Zeilen 47,1 -> 47,3 %, Sprecher 1:1 72,7 -> 73,0 %
+            if any(w["spk"] not in (old, new) for w in seg) or sum(w["e"] - w["s"] for w in seg) > 2.0:
                 continue
             s = _boundary_strength(words, j) - 0.3 * abs(j - i)
             if s > best + 0.5:
@@ -107,6 +108,13 @@ def snap_speaker_changes(words, max_shift=2):
                 w["spk"] = old
         i = max(i, best_j) + 1
     return words
+
+
+# Ganze Zeilen, die nur aus einer Abspann-Floskel bestehen: Whisper hört sie gern in Musik oder Rauschen hinein.
+# An 28 Referenz-Packs gemessen: 2 erfundene Zeilen weniger, keine echte Zeile verloren.
+OUTRO_PHRASES = {"thanks for watching", "thank you for watching", "for watching", "well be right back",
+                 "bye bye", "see you next time", "please subscribe", "danke fürs zuschauen",
+                 "vielen dank fürs zuschauen", "bis zum nächsten mal"}
 
 
 def build_lines(words, pause_split=0.8, target_len=6.0, max_len=10.0, sentence_pause=None,
@@ -156,6 +164,8 @@ def build_lines(words, pause_split=0.8, target_len=6.0, max_len=10.0, sentence_p
     for ln in lines:
         text = "".join(w["w"] for w in ln["words"]).strip()
         text = re.sub(r"\s+", " ", text)
+        if re.sub(r"[^\w\s]", "", text.lower()).strip() in OUTRO_PHRASES:
+            continue   # reine Abspann-Floskel, die die Texterkennung gern in Musik hineinhört
         out.append({"start": ln["words"][0]["s"], "end": ln["words"][-1]["e"], "text": text, "spk": ln["spk"]})
     return out
 
@@ -168,7 +178,7 @@ def envelope_db(audio16k, hop=160):
 
 
 def refine_bounds(lines, env_db, pre=0.35, post=0.5, fps=100,
-                  lead_s=0.10, tail_s=0.15, pre_pad=0.05, post_pad=0.02, follow_s=1.0):
+                  lead_s=0.10, tail_s=0.15, pre_pad=0.05, post_pad=0.02, follow_s=0.7):
     """Start/Ende an den tatsächlichen Sprechbeginn anpassen.
 
     Die Schwelle richtet sich nach dem Rauschteppich der Umgebung (nicht nur nach dem Lautesten).
@@ -183,6 +193,8 @@ def refine_bounds(lines, env_db, pre=0.35, post=0.5, fps=100,
     post_pad 0,10 -> 0,02 mit längerem Ausklang: Zeilen endeten im Mittel 109 ms nach dem menschlichen Ende,
     jetzt 39 ms. An 27 Referenz-Packs gemessen: Überlappung 74,7 -> 75,9 %, 1:1-Zeilen 46,5 -> 47,6 %,
     angeschnittene Wörter 1,3 -> 1,0 %.
+    follow_s 1,0 -> 0,7 (an 28 Packs gemessen): 1:1-Zeilen 47,1 -> 47,8 %, zusammengelegte Zeilen 184 -> 173,
+    8 Packs besser, keines schlechter. Kürzere Werte bringen mehr, kosten aber verpasste Zeilen.
     """
     n = len(env_db)
     floor_all = float(np.percentile(env_db, 10))

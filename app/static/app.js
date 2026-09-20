@@ -2113,6 +2113,78 @@ async function maybeAskOnline() {
   if (setup) openSettings('online');
 }
 
+
+/* ------------------------------------------------------------ Aus dem Spiel: Pack bearbeiten, Aufnahme als Video
+   Beides braucht keine KI: Das Pack bringt Zeilen, Sprecher und Zeiten schon mit, die Aufnahmen werden nur
+   über den Hintergrund gelegt. */
+async function pickFromGame(title, text, load, render) {
+  let data;
+  try { data = await load(); } catch (e) { return toast(e.message, true, 6000); }
+  const items = render(data);
+  if (!items.length) return;
+  const ov = document.createElement('div');
+  ov.className = 'dlg-overlay';
+  ov.innerHTML = `<div class="dlg wide" role="dialog" aria-modal="true">
+    <div class="dlg-head"><div class="dlg-icon">${ic('gamepad')}</div>
+      <div class="dlg-titles"><h2>${esc(tf(title))}</h2><p class="dlg-text">${esc(tf(text))}</p></div></div>
+    <div class="game-list">${items.map((it, i) => `<button class="game-item" data-i="${i}">${it.html}</button>`).join('')}</div>
+    <div class="dlg-actions"><button class="btn dlg-close">${esc(tf('Schließen'))}</button></div>`;
+  document.body.appendChild(ov);
+  const close = () => { ov.remove(); document.removeEventListener('keydown', onKey, true); };
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  document.addEventListener('keydown', onKey, true);
+  ov.addEventListener('click', e => {
+    if (e.target === ov || e.target.closest('.dlg-close')) return close();
+    const b = e.target.closest('.game-item');
+    if (b) { close(); items[+b.dataset.i].run(); }
+  });
+}
+
+$('#btnImportPack').onclick = () => pickFromGame(
+  'Pack bearbeiten', 'Ein fertiges Pack aus dem Spiel wird als Projekt übernommen: Video, Zeilen, Sprecher und Zeiten. Es wird nichts neu erkannt.',
+  () => api('GET', '/api/game/packs'),
+  data => {
+    if (!data.exists) { toast(tf('Der Pack-Ordner des Spiels wurde nicht gefunden. Du kannst ihn in den Einstellungen setzen.'), true, 7000); openSettings('export'); return []; }
+    if (!data.packs.length) { toast(tf('Im Spiel sind keine Packs.'), true); return []; }
+    return data.packs.map(p => ({
+      html: `<b data-nolang>${esc(p.title)}</b><span class="muted small">${esc(tf('{} Zeilen', p.lines))}${p.video ? '' : ' · ' + esc(tf('ohne Video'))}</span>`,
+      run: async () => {
+        if (!p.video) return toast(tf('In diesem Pack fehlt das Video.'), true);
+        try {
+          const { job } = await api('POST', '/api/game/import', { pack: p.name, ui_lang: window.VT_I18N?.lang });
+          toast(tf('Pack wird übernommen …'));
+          const r = await waitJob(job);
+          projectSig = ''; await refreshState();
+          toast(tf('Fertig. Das Projekt ist offen zum Bearbeiten.'));
+          if (r?.id) openProject(r.id);
+        } catch (e) { toast(e.message, true, 7000); }
+      },
+    }));
+  });
+
+$('#btnSessionVideo').onclick = () => pickFromGame(
+  'Aufnahme als Video', 'Wähle eine Aufnahme aus dem Spiel. Voicitool legt sie über das Video des Packs und speichert eine Videodatei.',
+  () => api('GET', '/api/game/sessions'),
+  data => {
+    if (!data.sessions.length) { toast(tf('Im Spiel sind noch keine Aufnahmen.'), true, 6000); return []; }
+    return data.sessions.map(s => ({
+      html: `<b data-nolang>${esc(s.pack || tf('Pack unbekannt'))}</b>
+        <span class="muted small" data-nolang>${esc(s.label || '')}</span>
+        <span class="muted small">${esc(tf('{} Aufnahmen', s.takes))} · ${esc(s.kind === 'multi' ? tf('zusammen') : tf('allein'))}</span>`,
+      run: async () => {
+        try {
+          const { job } = await api('POST', '/api/game/session-video', { session: s.id, pack: s.pack || null });
+          toast(tf('Video wird gebaut …'));
+          const r = await waitJob(job);
+          const dlg = await dialog({ title: tf('Video ist fertig'), icon: 'clapper',
+            html: `<b data-nolang>${esc(r.file.split(/[\\/]/).pop())}</b><br>${esc(tf('{} Aufnahmen eingesetzt.', r.lines))}`,
+            buttons: [{ label: 'Schließen', value: null }, { label: 'Im Ordner zeigen', value: 'open', kind: 'primary', main: true }] });
+          if (dlg === 'open') api('POST', '/api/open', { path: r.file }).catch(e => toast(e.message, true));
+        } catch (e) { toast(e.message, true, 8000); }
+      },
+    }));
+  });
+
 /* Video von einer Web-Adresse laden (YouTube u. a.) */
 async function downloadFromUrl() {
   const input = $('#urlInput'), btn = $('#btnUrl');
@@ -2498,11 +2570,13 @@ function addCut(a, b) {
     else merged.push([s, e]);
   }
   S.p.cuts = merged;
+  renderExportChecks();
 }
 function cutLinesIn(c) { return S.p.lines.filter(l => l.start >= c[0] && l.end <= c[1]).length; }
 async function removeCut(c) {
   snapshot();
   S.p.cuts = S.p.cuts.filter(x => x !== c);
+  renderExportChecks();
   scheduleSave(); drawTimeline();
   toast(tf('Schnitt entfernt, die Stelle ist wieder im Video.'));
 }
@@ -2919,6 +2993,7 @@ async function deleteLine(l, ask = true) {
   if (i < 0) return;
   snapshot();
   S.p.lines.splice(i, 1);
+  S.p.lines.forEach(o => { if (o.repeat_of === l.id) delete o.repeat_of; });   // Vorlage weg: eigene Aufnahme
   const next = S.p.lines[i] || S.p.lines[i - 1];
   S.sel = next ? next.id : null;
   afterChange(null);
@@ -2973,7 +3048,9 @@ function lineWordTimes(l) {
 }
 
 function splitLine(l, t) {
+  if (l.end - l.start < 2 * MIN_LEN + 0.02) return toast('Diese Zeile ist zu kurz zum Teilen.', true);
   if (t <= l.start + 0.1 || t >= l.end - 0.1) return toast('Zum Teilen die Stelle innerhalb der Zeile wählen.', true);
+  t = clamp(t, l.start + MIN_LEN, l.end - MIN_LEN);   // beide Hälften bleiben lang genug fürs Spiel
   snapshot();
   const tokens = l.text.split(/\s+/).filter(Boolean);
   const times = lineWordTimes(l);
@@ -2986,11 +3063,18 @@ function splitLine(l, t) {
     s2 = Math.max(mid, next.s - 0.05);
     if (e1 - l.start < MIN_LEN || l.end - s2 < MIN_LEN || s2 < e1) { e1 = s2 = t; }
   } else {
-    cut = Math.round(tokens.length * (t - l.start) / (l.end - l.start));
+    cut = clamp(Math.round(tokens.length * (t - l.start) / (l.end - l.start)), 1, Math.max(1, tokens.length - 1));
   }
   const second = { id: newId(), start: r3(s2), end: l.end, text: tokens.slice(cut).join(' '), chars: [...l.chars] };
+  if (l.laugh) second.laugh = l.laugh;
+  if (l.repeat_of) second.repeat_of = l.repeat_of;   // geteilte Wiederholung bleibt eine Wiederholung
+  // Wird eine Vorlage geteilt, spielen ihre Wiederholungen sonst nur noch die erste Hälfte: sie bekommen
+  // wieder eine eigene Aufnahme
+  const freed = S.p.lines.filter(o => o.repeat_of === l.id);
+  freed.forEach(o => delete o.repeat_of);
   l.end = r3(e1); l.text = tokens.slice(0, cut).join(' ');
   S.p.lines.push(second);
+  if (freed.length) toast(tf('{} Wiederholung(en) haben jetzt eine eigene Aufnahme.', freed.length));
   afterChange(null);
   selectLine(second.id);
 }
@@ -3542,7 +3626,8 @@ async function openInstAligner() {
     .then(r => { if (!r.ok) throw new Error(tf('Ton konnte nicht geladen werden.')); return r.arrayBuffer(); })
     .then(b => actx.decodeAudioData(b));
   const bufs = Promise.all([loadBuf('ref'), loadBuf('own')]);
-  bufs.catch(e => toast(e.message, true));
+  let closed = false;
+  bufs.catch(e => { if (!closed) toast(e.message, true); });
 
   // jede Spur nach ihrer eigenen Dynamik zeichnen (leiseste 25 % unten, lauteste Stelle oben): Schläge und Pausen
   // treten hervor, auch wenn die Musik durchgehend laut ist
@@ -3655,7 +3740,7 @@ async function openInstAligner() {
   }
   $('.ia-play', box).onclick = () => (playing ? stopPlay() : startPlay(view.start));
 
-  const close = () => { stopPlay(); actx.close().catch(() => {}); ov.remove(); document.removeEventListener('keydown', onKey, true); };
+  const close = () => { closed = true; stopPlay(); actx.close().catch(() => {}); ov.remove(); document.removeEventListener('keydown', onKey, true); };
   const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
   document.addEventListener('keydown', onKey, true);
   $('.ia-cancel', box).onclick = close;
@@ -4365,7 +4450,8 @@ cv.addEventListener('mousedown', e => {
     if (h.shared) {   // nur mittig auf der gemeinsamen Kante: beide Zeilen ziehen
       const near = o => (h.kind === 'start' ? Math.abs(o.end - l.start) : Math.abs(o.start - l.end));
       buddy = S.p.lines
-        .filter(o => o !== l && o.chars.some(c => l.chars.includes(c)) && near(o) <= NEIGHBOUR_GAP)
+        .filter(o => o !== l && o.chars.some(c => l.chars.includes(c) && laneOf(c) === h.laneIdx)
+                  && near(o) <= NEIGHBOUR_GAP)
         .sort((p, q) => near(p) - near(q))[0] || null;
       if (buddy) buddyOrig = { start: buddy.start, end: buddy.end };
     }
@@ -4378,19 +4464,21 @@ cv.addEventListener('mousedown', e => {
         cv.style.cursor = h.kind === 'move' ? CUR.moving : CUR.trim;
         const dt = x2t(ev.offsetX) - tDown;
         if (h.kind === 'start') {
-          const lo = buddy ? buddyOrig.start + MIN_LEN + GAP : gap.lo;
+          const lo = buddy ? Math.max(gap.lo, buddyOrig.start + MIN_LEN + GAP) : gap.lo;
           l.start = r3(clamp(snapTime(orig.start + dt, l.id, buddy?.id), lo, l.end - MIN_LEN));
           if (buddy) buddy.end = r3(l.start - GAP);   // Nachbar wird genau um dasselbe kürzer/länger
           seek(l.start);
         } else if (h.kind === 'end') {
-          const hi = buddy ? buddyOrig.end - MIN_LEN - GAP : gap.hi;
+          const hi = buddy ? Math.min(gap.hi, buddyOrig.end - MIN_LEN - GAP) : gap.hi;
           l.end = r3(clamp(snapTime(orig.end + dt, l.id, buddy?.id), l.start + MIN_LEN, hi));
           if (buddy) buddy.start = r3(l.end + GAP);
           seek(l.end);
         } else {
           // Verschieben, auch in eine andere Sprecher-Spur
           const lane = laneAt(ev.offsetY);
-          const target = charOfLane(lane) || dragChar;
+          // Passen nicht alle Sprecher in die Timeline, zeigt laneAt die letzte Spur. Dann bleibt der Sprecher,
+          // sonst würde waagerechtes Verschieben die Zeile stillschweigend einem anderen Sprecher geben.
+          const target = (laneOf(dragChar) === lane ? dragChar : charOfLane(lane)) || dragChar;
           l.chars = [...new Set(orig.chars.map(c => (c === dragChar ? target : c)))];
           d.targetLane = target !== dragChar ? lane : null;
           const len = orig.end - orig.start;

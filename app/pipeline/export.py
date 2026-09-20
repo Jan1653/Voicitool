@@ -111,6 +111,7 @@ def ensure_video(pid, report):
             old.unlink()
         part = d / "dub_video.part.ogv"
         audio, duration = d / "audio.wav", data["duration"]
+        cuts = project.snap_cuts(cuts, media.target_fps(d / data["source"], opts["video_fps"]))
         if cuts:   # Ton für das geschnittene Video vorbereiten (Bild schneidet ffmpeg beim Kodieren)
             mix, sr = sf.read(audio, dtype="float32", always_2d=True)
             segs = project.keep_segments(cuts, data["duration"])
@@ -163,16 +164,25 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
     # Video geschnitten: Zeilen in rausgeschnittenen Stellen fallen weg, angeschnittene behalten ihren längsten Teil,
     # alle Zeitpunkte rücken um die Schnitte davor nach vorne
     cuts = project.normalize_cuts(data.get("cuts"), data["duration"])
+    if cuts:
+        cuts = project.snap_cuts(cuts, media.target_fps(d / data["source"], opts["video_fps"]))
     span = {}
     for ln in lines:
-        part = project.kept_part(ln["start"], ln["end"], cuts) if cuts else (ln["start"], ln["end"])
-        if part:
-            span[ln["id"]] = part
+        dur = ln["end"] - ln["start"]
+        starts = [ln["start"]] + sorted(extra_times.get(ln["id"], []))
+        # Jeder Zeitpunkt der Aufnahme wird geprüft. Fällt der erste weg, liefert die erste erhaltene
+        # Wiederholung den Clip; die übrigen rücken um dieselbe Strecke mit wie der Clipanfang.
+        kept = [(t, project.kept_part(t, t + dur, cuts) if cuts else (t, t + dur)) for t in starts]
+        kept = [(t, p) for t, p in kept if p]
+        if not kept:
+            extra_times.pop(ln["id"], None)
+            continue
+        first_t, first_part = kept[0]
+        span[ln["id"]] = first_part
+        shift = first_part[0] - first_t
+        extra_times[ln["id"]] = [t + shift for t, _ in kept[1:]]
     cut_away = len(lines) - len(span)
     lines = [ln for ln in lines if ln["id"] in span]
-    if cuts:
-        for mid, ts in list(extra_times.items()):
-            extra_times[mid] = [t for t in ts if project.kept_part(t, t + 0.1, cuts)]
     if not lines:
         raise RuntimeError("Keine Zeilen zum Exportieren.")
 

@@ -111,17 +111,38 @@ def make_preview(src, dst, duration, on_progress):
                 "-vf", "scale=-2:'trunc(min(720,ih)/2)*2'", *venc, "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "160k", "-ac", "2", "-movflags", "+faststart", str(dst)]
 
-    # Grafikkarte kodieren lassen, wenn sie kann: NVIDIA, sonst Intel (viele Notebooks), sonst AMD, sonst Prozessor
-    for name, venc in (("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "26"]),
-                       ("h264_qsv", ["-c:v", "h264_qsv", "-preset", "faster", "-global_quality", "26"]),
-                       ("h264_amf", ["-c:v", "h264_amf", "-quality", "speed", "-rc", "cqp", "-qp_i", "26", "-qp_p", "26"])):
-        if not has_encoder(name):
+    _encode_h264(build, dst, duration, on_progress)
+
+
+# Grafikkarte kodieren lassen, wenn sie kann: NVIDIA, sonst Intel (viele Notebooks), sonst AMD, sonst Prozessor
+H264_CHAIN = (("h264_nvenc", ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "26"]),
+              ("h264_qsv", ["-c:v", "h264_qsv", "-preset", "faster", "-global_quality", "26"]),
+              ("h264_amf", ["-c:v", "h264_amf", "-quality", "speed", "-rc", "cqp", "-qp_i", "26", "-qp_p", "26"]),
+              ("libx264", ["-c:v", "libx264", "-preset", "veryfast", "-crf", "24"]))
+
+
+def _encode_h264(build, dst, duration, on_progress):
+    """build(venc) -> ffmpeg-Befehl. Der erste Encoder, der läuft, gewinnt; am Ende der Prozessor."""
+    for name, venc in H264_CHAIN:
+        if name != "libx264" and not has_encoder(name):
             continue
         try:
             return run_with_progress(build(venc), duration, on_progress)
         except RuntimeError:
             Path(dst).unlink(missing_ok=True)   # halbe Datei aus dem Fehlversuch
-    run_with_progress(build(["-c:v", "libx264", "-preset", "veryfast", "-crf", "24"]), duration, on_progress)
+            if name == "libx264":
+                raise
+
+
+def mux_video(video_src, audio_src, dst, duration, on_progress=None):
+    """Video mit einer neuen Tonspur als MP4 schreiben (H.264/AAC, überall abspielbar)."""
+    def build(venc):
+        return [FFMPEG, "-y", "-v", "error", "-i", str(video_src), "-i", str(audio_src),
+                "-map", "0:v:0", "-map", "1:a:0", "-vf", "scale=-2:'trunc(min(1080,ih)/2)*2'", *venc,
+                "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-shortest",
+                "-movflags", "+faststart", str(dst)]
+
+    _encode_h264(build, dst, duration, on_progress or (lambda p: None))
 
 
 def encode_opus(src, dst, bitrate="96k"):
@@ -135,6 +156,11 @@ def count_decode_errors(path):
     return res.stderr.decode("utf8", "replace").lower().count("error")
 
 
+def target_fps(src, max_fps):
+    """Bildrate, mit der exportiert wird (nie höher als die Quelle). Danach richten sich auch die Schnittgrenzen."""
+    return min(int(max_fps or 60), max(1, round(probe(src)["fps"] or 30)))
+
+
 def encode_ogv(src, dst, duration, max_height, max_fps, quality, on_progress, audio=None, tag=None, cuts=None):
     """Video für Choicer Voicer (Godot) als Ogg Theora + Vorbis kodieren.
 
@@ -142,11 +168,11 @@ def encode_ogv(src, dst, duration, max_height, max_fps, quality, on_progress, au
     tag: Credit-Text für die Metadaten, None = keine Kennzeichnung.
     cuts: rausgeschnittene Stellen [[start, ende], …] (Bild; den passenden Ton liefert audio schon geschnitten).
     """
-    info = probe(src)
-    target_fps = min(int(max_fps or 60), max(1, round(info["fps"] or 30)))
-    vf = f"scale=-2:'trunc(min({int(max_height)},ih)/2)*2',fps={target_fps}"
+    fps = target_fps(src, max_fps)
+    vf = f"scale=-2:'trunc(min({int(max_height)},ih)/2)*2',fps={fps}"
     if cuts:   # nach fps: feste Bildrate, dann Bilder in den Schnitten verwerfen und lückenlos neu nummerieren
-        drop = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in cuts)
+        # „between“ schließt beide Enden ein; das Bild genau am Schnittende gehört schon zum erhaltenen Teil
+        drop = "+".join(f"between(t,{s:.3f},{e - 0.5 / fps:.3f})" for s, e in cuts)
         vf += f",select='not({drop})',setpts=N/FRAME_RATE/TB"
     cmd = [FFMPEG, "-y", "-v", "error", "-i", str(src)]
     if audio and Path(audio).exists():
@@ -154,7 +180,7 @@ def encode_ogv(src, dst, duration, max_height, max_fps, quality, on_progress, au
                 "-c:a", "libvorbis", "-q:a", "5", "-ar", "44100", "-ac", "2"]
     else:
         cmd += ["-map", "0:v:0"]
-    cmd += ["-vf", vf, "-pix_fmt", "yuv420p", "-c:v", "libtheora", "-q:v", str(quality), "-map_metadata", "-1"]
+    cmd += ["-vf", vf, "-r", str(fps), "-pix_fmt", "yuv420p", "-c:v", "libtheora", "-q:v", str(quality), "-map_metadata", "-1"]
     if tag:
         cmd += ["-metadata", f"comment={tag}"]
     cmd.append(str(dst))

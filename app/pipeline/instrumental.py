@@ -224,6 +224,10 @@ def align(project_dir, source, on_progress=None):
         factor = _level_factor(d, b, sr)   # so laut wie die Musik im Video (KI-Hintergrund)
         if abs(factor - 1.0) > 0.02:
             b = b * factor
+            peak_b = float(np.abs(b).max())
+            if peak_b > 0.99:   # nicht übersteuern
+                factor *= 0.99 / peak_b
+                b = b * (0.99 / peak_b)
             sf.write(out, b, sr, subtype="PCM_16")
         # bestmögliche Auslöschung (nur zur Messung): passende Skalierung suchen
         scale = float(np.sum(a * b) / (np.sum(b * b) + 1e-9))

@@ -71,6 +71,14 @@ def keep_segments(cuts, duration):
     return segs
 
 
+def snap_cuts(cuts, fps):
+    """Schnittgrenzen aufs Bildraster runden: Ton wird probengenau geschnitten, Bild nur bildweise. Ohne das
+    laufen Bild und Ton je Schnitt bis zu eine Bildlänge auseinander."""
+    if not cuts or not fps:
+        return cuts
+    return [[round(s * fps) / fps, round(e * fps) / fps] for s, e in cuts]
+
+
 def cut_time(t, cuts):
     """Zeitpunkt im Original -> Zeitpunkt im geschnittenen Video (in einem Schnitt: dessen Anfang)."""
     shift = 0.0

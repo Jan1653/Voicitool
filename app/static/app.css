@@ -192,6 +192,13 @@ textarea { resize: vertical; }
 .url-row { display: flex; gap: 8px; width: min(560px, 100%); margin-top: 4px; }
 .url-row input { flex: 1; }
 .url-subs { font-size: 12.5px; color: var(--muted); }
+.game-card p { margin: 0 0 10px; }
+.game-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; margin: 4px 0 0; }
+.game-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel2); cursor: pointer; text-align: left; }
+.game-item:hover { border-color: var(--accent); }
+.game-item b { flex: 1; font-weight: 600; }
+.game-item .muted { white-space: nowrap; }
 
 /* Online rechnen */
 .online-box { display: flex; flex-direction: column; gap: 14px; }
