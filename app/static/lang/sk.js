@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "Vlastné nahrávky",
     "Mehrspieler-Aufnahmen": "Nahrávky pre viac hráčov",
     "Nur {} % der erkannten Wörter standen im Text.": "V texte bolo len {} % rozpoznaných slov.",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "Packov vnútri: {}. Prevzal sa ten najväčší.",
+    "{} Zeilen verschoben.": "Presunutých riadkov: {}.",
     "GitHub nicht erreichbar: {}": "GitHub nedostupný: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Dabingové balíčky pre The Choicer Voicer. Vyvinul Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Slobodný softvér pod licenciou GNU General Public License v3.0 (GPL-3.0): Voicitool smieš používať, upravovať a šíriť ďalej; upravené verzie musia znova vyjsť pod GPL-3.0.",

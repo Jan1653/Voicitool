@@ -1,5 +1,18 @@
 [
   {
+    "build": 32,
+    "date": "2026-09-20",
+    "changes": [
+      "Your own instrumental stays audible. Voicitool matched it to the AI background, and exactly when you import your own background that track is nearly silent, so yours was turned down to almost nothing. It is now matched to the sound of the video in the parts where nobody sings. Aligning by hand no longer makes it quieter with every try. If yours went quiet, align it once more or import it again.",
+      "Hold Ctrl and click to select several lines, in the list or in the timeline. Dragging one of them moves the whole selection by the same amount, and one Ctrl+Z puts them all back.",
+      "Still images from videos with a variable frame rate now come from the right spot.",
+      "Dragging a folder with videos next to a pack no longer loses the videos, and a folder that is not a pack is not uploaded at all.",
+      "A ZIP with several packs says how many it found.",
+      "Genius says so when a page gives no text instead of silently emptying the field.",
+      "Less memory while exporting, leftover temporary folders from dragging a pack in are cleaned up, and uploads cannot write outside their folder."
+    ]
+  },
+  {
     "build": 31,
     "date": "2026-09-20",
     "changes": [

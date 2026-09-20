@@ -38,6 +38,7 @@ def _background_maintenance():
     threading.Thread(target=work, daemon=True).start()
     try:
         config.tidy_export()   # alte Ausgaben in Zips, Ordner und Exportierte Videos einsortieren
+        _tidy_import_dir()
     except Exception:
         traceback.print_exc()
     from app import system
@@ -497,8 +498,10 @@ async def game_import_upload(files: list[UploadFile] = File(...), paths: list[st
     try:
         for f, rel in zip(files, list(paths) + [""] * len(files)):
             parts = [p for p in str(rel or f.filename or "datei").replace("\\", "/").split("/")
-                     if p not in ("", ".", "..")]
+                     if p not in ("", ".", "..") and ":" not in p]
             dst = tmp.joinpath(*(parts or ["datei"]))
+            if not dst.resolve().is_relative_to(tmp.resolve()):
+                raise HTTPException(400, "Ungültiger Dateiname im Paket.")
             dst.parent.mkdir(parents=True, exist_ok=True)
             with open(dst, "wb") as out:
                 while chunk := await f.read(1 << 20):
@@ -509,24 +512,40 @@ async def game_import_upload(files: list[UploadFile] = File(...), paths: list[st
             out_dir.mkdir()
             try:
                 with zipfile.ZipFile(only[0]) as z:
+                    if sum(i.file_size for i in z.infolist()) > 20 * (1 << 30):
+                        raise HTTPException(400, "Die ZIP-Datei ist zu groß.")
                     z.extractall(out_dir)
             except zipfile.BadZipFile:
                 raise HTTPException(400, "Die ZIP-Datei lässt sich nicht öffnen.")
             only[0].unlink(missing_ok=True)
-        src = packs.find_pack_dir(tmp)
-        if src is None:
+        found = packs.find_pack_dirs(tmp)
+        if not found:
             raise HTTPException(400, "Darin ist kein Pack: es fehlen die Sprachclips oder die Zeilen-Dateien.")
+        src, more = found[0], len(found) - 1
     except Exception:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
 
     def run(job, report):
         try:
-            return {"id": packs.import_pack(src, name or None, report, ui_lang=ui_lang or None)}
+            return {"id": packs.import_pack(src, name or None, report, ui_lang=ui_lang or None), "more": more}
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
     return {"job": jobs.submit("import", "", run, f"Pack übernehmen: {name or src.name}", lane="cpu")}
+
+
+def _tidy_import_dir():
+    """Zwischenordner vom Hereinziehen aufräumen: bleibt einer liegen (Abbruch, Absturz), belegt er GB."""
+    root = config.DATA_DIR / "import"
+    if not root.exists():
+        return
+    for d in root.iterdir():
+        try:
+            if time.time() - d.stat().st_mtime > 6 * 3600:
+                shutil.rmtree(d, ignore_errors=True)
+        except OSError:
+            pass
 
 
 @app.post("/api/download")

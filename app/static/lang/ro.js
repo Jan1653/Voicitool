@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "Înregistrări proprii",
     "Mehrspieler-Aufnahmen": "Înregistrări multiplayer",
     "Nur {} % der erkannten Wörter standen im Text.": "Doar {} % dintre cuvintele recunoscute erau în text.",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "Conținea {} pachete. A fost preluat cel mai mare.",
+    "{} Zeilen verschoben.": "Linii mutate: {}.",
     "GitHub nicht erreichbar: {}": "GitHub nu poate fi accesat: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Pachete de dublaj pentru The Choicer Voicer. Dezvoltat de Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Software liber sub licența GNU General Public License v3.0 (GPL-3.0): poți folosi, modifica și distribui mai departe Voicitool; versiunile modificate trebuie publicate tot sub GPL-3.0.",

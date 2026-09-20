@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "Rekaman sendiri",
     "Mehrspieler-Aufnahmen": "Rekaman multipemain",
     "Nur {} % der erkannten Wörter standen im Text.": "Hanya {} % kata yang dikenali ada di teks.",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "Isinya {} paket. Yang paling besar yang diambil.",
+    "{} Zeilen verschoben.": "{} baris dipindahkan.",
     "GitHub nicht erreichbar: {}": "GitHub tidak dapat dijangkau: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Paket dubbing untuk The Choicer Voicer. Dibuat oleh Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Perangkat lunak bebas di bawah lisensi GNU General Public License v3.0 (GPL-3.0): kamu boleh menggunakan, mengubah, dan membagikan Voicitool; versi yang diubah harus dirilis kembali di bawah GPL-3.0.",

@@ -57,8 +57,7 @@ def _lufs(x, sr):
     n = (len(y) - bs) // step + 1
     if n <= 0:
         return float(-0.691 + 10 * np.log10(np.mean(y ** 2) + 1e-12))
-    idx = np.arange(bs)[None, :] + step * np.arange(n)[:, None]
-    p = np.mean(y[idx] ** 2, axis=1)
+    p = np.lib.stride_tricks.sliding_window_view(y ** 2, bs)[::step].mean(axis=1)
     lv = -0.691 + 10 * np.log10(p + 1e-12)
     keep = lv > -70.0
     if not keep.any():
@@ -74,6 +73,9 @@ def _match_loudness(clips, sr):
     """Jeden Clip auf dieselbe Lautheit bringen, ohne die Spitzen anzuheben."""
     out = []
     for c in clips:
+        if not len(c):
+            out.append(c)
+            continue
         peak = float(np.abs(c).max())
         loud = _lufs(c, sr) if peak > 1e-4 else -70.0
         if peak <= 1e-4 or loud <= LOUD_FLOOR:

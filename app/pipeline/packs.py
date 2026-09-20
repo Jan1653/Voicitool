@@ -184,21 +184,26 @@ def _mix_into(buf, clip, at):
     buf[a:a + len(part)] += part
 
 
-def find_pack_dir(root):
-    """In einem entpackten Haufen den Ordner finden, der wirklich ein Pack ist. -> Pfad oder None"""
+def find_pack_dirs(root):
+    """Alle Ordner in einem entpackten Haufen, die ein Pack sind. Der mit den meisten Clips zuerst."""
     root = Path(root)
-    best, best_n = None, 0
+    found = []
     for d in [root] + sorted(x for x in root.rglob("*") if x.is_dir()):
         try:
             names = [f.name.lower() for f in d.iterdir() if f.is_file()]
         except OSError:
             continue
         n = sum(1 for x in names if x.endswith(".ogg"))
-        if not n or not any(x.endswith((".ini", ".txt")) for x in names):
-            continue
-        if n > best_n:   # der Ordner mit den meisten Sprachclips ist das Pack
-            best, best_n = d, n
-    return best
+        if n and any(x.endswith((".ini", ".txt")) for x in names):
+            found.append((n, d))
+    found.sort(key=lambda x: (-x[0], str(x[1])))
+    return [d for _, d in found]
+
+
+def find_pack_dir(root):
+    """Der Ordner, der am ehesten das Pack ist. -> Pfad oder None"""
+    dirs = find_pack_dirs(root)
+    return dirs[0] if dirs else None
 
 
 def import_pack(pack_path, name=None, report=None, category=None, ui_lang=None):
@@ -388,8 +393,15 @@ def list_sessions():
         made = []
     for s in out:
         stamp = time.strftime("%Y-%m-%d %H-%M", time.localtime(s["when"]))
-        hit = next((f for f in made if f.name.endswith(f" {stamp}.mp4")), None)
-        s["video"] = str(hit) if hit else None
+        cand = [f for f in made if f.name.endswith(f" {stamp}.mp4")]
+        if len(cand) > 1 and s["pack"]:
+            # gleiche Minute, mehrere Videos: über den Pack-Titel im Dateinamen unterscheiden
+            try:
+                slug = project.slugify(read_pack(config.game_packs_dir() / s["pack"])["title"])
+                cand = [f for f in cand if f.name.startswith(slug)] or cand
+            except Exception:
+                pass
+        s["video"] = str(cand[0]) if cand else None
     # Das Spiel schreibt dieselbe Aufnahme oft in beide Ordner. Gleiches Pack, gleiche Anzahl und fast gleiche
     # Zeit: nur einmal zeigen, und zwar die Fassung mit lesbarem Datum (allein aufgenommen).
     seen, unique = [], []

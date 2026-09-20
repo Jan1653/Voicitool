@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "我的录音",
     "Mehrspieler-Aufnahmen": "多人游戏录音",
     "Nur {} % der erkannten Wörter standen im Text.": "识别出的词语中只有 {}% 出现在文本里。",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "里面有 {} 个语音包，接管了最大的那个。",
+    "{} Zeilen verschoben.": "已移动 {} 条台词。",
     "GitHub nicht erreichbar: {}": "无法连接到 GitHub: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "The Choicer Voicer 的配音包制作工具,由 Jan1653 开发。",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "基于 GNU 通用公共许可证 v3.0(GPL-3.0)的自由软件:你可以使用、修改和分发 Voicitool;修改后的版本也必须以 GPL-3.0 许可证发布。",

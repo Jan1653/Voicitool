@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "เสียงบันทึกของฉัน",
     "Mehrspieler-Aufnahmen": "เสียงบันทึกแบบหลายผู้เล่น",
     "Nur {} % der erkannten Wörter standen im Text.": "มีคำที่รู้จำได้อยู่ในข้อความเพียง {} %",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "ข้างในมี {} แพ็ก นำแพ็กที่ใหญ่ที่สุดเข้ามา",
+    "{} Zeilen verschoben.": "ย้าย {} บรรทัดแล้ว",
     "GitHub nicht erreichbar: {}": "เชื่อมต่อ GitHub ไม่ได้: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "แพ็กพากย์เสียงสำหรับ The Choicer Voicer พัฒนาโดย Jan1653",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "ซอฟต์แวร์เสรีภายใต้สัญญาอนุญาต GNU General Public License v3.0 (GPL-3.0) คุณสามารถใช้ แก้ไข และเผยแพร่ Voicitool ต่อได้ เวอร์ชันที่แก้ไขต้องเผยแพร่ภายใต้ GPL-3.0 เช่นกัน",

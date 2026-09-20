@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "自分の録音",
     "Mehrspieler-Aufnahmen": "マルチプレイの録音",
     "Nur {} % der erkannten Wörter standen im Text.": "認識された単語のうち、テキストにあったのは{}%だけでした。",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "中にパックが{}件ありました。いちばん大きいものを取り込みました。",
+    "{} Zeilen verschoben.": "セリフ{}件を移動しました。",
     "GitHub nicht erreichbar: {}": "GitHubに接続できません: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "The Choicer Voicer用の吹き替えパック。Jan1653制作。",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "GNU General Public License v3.0(GPL-3.0)のもとで公開されたフリーソフトウェアです。Voicitoolの利用、変更、再配布ができます。変更版も同じくGPL-3.0で公開する必要があります。",

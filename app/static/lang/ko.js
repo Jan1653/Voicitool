@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "내 녹음",
     "Mehrspieler-Aufnahmen": "멀티플레이 녹음",
     "Nur {} % der erkannten Wörter standen im Text.": "인식된 단어 중 {}%만 텍스트에 있었어요.",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "안에 팩이 {}개 있었어요. 가장 큰 것을 가져왔어요.",
+    "{} Zeilen verschoben.": "대사 {}개를 이동했어요.",
     "GitHub nicht erreichbar: {}": "GitHub에 연결할 수 없어요: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "The Choicer Voicer용 더빙 팩 제작 도구예요. Jan1653 제작.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "GNU General Public License v3.0 (GPL-3.0)에 따른 자유 소프트웨어예요. Voicitool을 사용, 수정, 배포할 수 있으며 수정한 버전도 GPL-3.0으로 다시 공개해야 해요.",

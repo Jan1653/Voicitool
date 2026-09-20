@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "Egne optagelser",
     "Mehrspieler-Aufnahmen": "Multiplayer-optagelser",
     "Nur {} % der erkannten Wörter standen im Text.": "Kun {} % af de genkendte ord stod i teksten.",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "Den indeholdt {} pakker. Den største blev hentet ind.",
+    "{} Zeilen verschoben.": "{} linjer flyttet.",
     "GitHub nicht erreichbar: {}": "GitHub kan ikke nås: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Dubbingpakker til The Choicer Voicer. Lavet af Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Fri software under licensen GNU General Public License v3.0 (GPL-3.0): du må bruge, ændre og distribuere Voicitool videre; ændrede versioner skal igen udgives under GPL-3.0.",

@@ -157,10 +157,26 @@ def _frames(x, fps=ENV_FPS, sr=44100):
 
 
 def _level_factor(project_dir, inst, sr):
-    """Faktor, mit dem das Instrumental so laut wird wie der KI-Hintergrund, also wie die Musik im Video.
+    """Faktor, mit dem das Instrumental so laut wird wie die Musik im Video.
 
-    Gemessen über alle Stellen, an denen beide klingen. Früher war der ganze Mix samt Gesang das Maß: Bei Liedern
-    gibt es kaum gesangsfreie Stellen, dann wurde das Instrumental hörbar lauter als die Musik im Video."""
+    Maß ist die Tonspur des Videos an den Stellen ohne Gesang. Zwei Fallen stecken hier drin:
+    Nimmt man den ganzen Mix samt Gesang, wird das Instrumental hörbar zu laut (bei Liedern gibt es
+    kaum gesangsfreie Stellen). Nimmt man den KI-Hintergrund, wird es bei schlechter Trennung fast
+    still, weil dann auch die Musik in der Stimmen-Spur gelandet ist. Deshalb: Video-Ton, aber nur dort,
+    wo niemand singt, und der KI-Hintergrund nur als Rückfall."""
+    ref_path = project_dir / "audio.wav"
+    quiet = None
+    if ref_path.exists():
+        ref, rsr = sf.read(ref_path, dtype="float32", always_2d=True)
+        a = np.sqrt((_frames(ref.mean(axis=1), sr=rsr) ** 2).mean(axis=1))
+        b = np.sqrt((_frames(inst.mean(axis=1), sr=sr) ** 2).mean(axis=1))
+        n = min(len(a), len(b))
+        a, b = a[:n], b[:n]
+        quiet = _nonvocal_mask(project_dir, n)
+        on = quiet & (a > a.max() * 0.03) & (b > b.max() * 0.03)
+        if on.sum() >= 50:
+            return float(np.clip(np.sqrt(np.mean(a[on] ** 2) / (np.mean(b[on] ** 2) + 1e-12)), 0.2, 5.0))
+    # kaum gesangsfreie Stellen: dann der KI-Hintergrund, wie gehabt
     ref, rsr = sf.read(project_dir / "hintergrund.wav", dtype="float32", always_2d=True)
     a = np.sqrt((_frames(ref.mean(axis=1), sr=rsr) ** 2).mean(axis=1))
     b = np.sqrt((_frames(inst.mean(axis=1), sr=sr) ** 2).mean(axis=1))
@@ -274,6 +290,7 @@ def align(project_dir, source, on_progress=None):
         "versatz": round(m["offset"], 3),
         "drift": round(m["drift"], 3),
         "tempo_slope": m["slope"],   # für das Ausrichten von Hand (Tempo bleibt, nur der Versatz ändert sich)
+        "grundpegel": round(gain / max(factor, 1e-6), 3),   # Pegel vor dem Angleichen, Ausgangspunkt beim Ausrichten
         "lautstaerke": round(gain, 3),
         "guete": round(quality, 3),
         "restpegel_db": round(float(rest_db), 1),
@@ -343,6 +360,19 @@ def preview(project_dir, which):
     return dst
 
 
+def _base_gain(project_dir, source):
+    """Grober Ausgangspegel wie beim automatischen Ausrichten: Effektivwert des Videos gegen die Quelle.
+
+    Gebraucht für ältere Projekte, in denen nur der schon angeglichene Wert gespeichert ist."""
+    try:
+        mix16 = media.load_mono(project_dir / "audio.wav")
+        inst16 = media.load_mono(source)
+        g = float(np.sqrt(np.mean(mix16 ** 2) / (np.mean(inst16 ** 2) + 1e-12)))
+        return min(max(g, 0.2), 5.0)
+    except Exception:
+        return 1.0
+
+
 def manual(project_dir, offset):
     """Versatz von Hand setzen (Tempo und Lautstärke bleiben wie bei der automatischen Messung)."""
     d = project_dir
@@ -355,12 +385,15 @@ def manual(project_dir, offset):
         slope = 0.0   # die Messung war unbrauchbar, dann auch ihr Tempo nicht übernehmen
     target_len = sf.info(d / "audio.wav").duration
     out = d / "instrumental.wav"
-    gain = float(info.get("lautstaerke", 1.0))
-    _apply(src, out, float(offset), slope, gain, target_len)
-    gain *= _match_level(d, out)   # so laut wie die Musik im Video
+    # immer vom Grundpegel aus rechnen: nähme man den schon angeglichenen Wert, würde jedes Ausrichten
+    # von Hand erneut angeglichen und die Spur Schritt für Schritt leiser
+    base = float(info.get("grundpegel") or 0.0) or _base_gain(d, src)
+    _apply(src, out, float(offset), slope, base, target_len)
+    gain = base * _match_level(d, out)   # so laut wie die Musik im Video
     media.encode_opus(out, d / "instrumental.ogg")
     (d / "stimmen_diff.wav").unlink(missing_ok=True)   # passte zur alten Ausrichtung
-    info.update({"versatz": round(float(offset), 3), "tempo_slope": slope, "lautstaerke": round(gain, 3), "bewertung": "von Hand",
+    info.update({"versatz": round(float(offset), 3), "tempo_slope": slope, "lautstaerke": round(gain, 3),
+                 "grundpegel": round(base, 3), "bewertung": "von Hand",
                  "hinweis": "Von Hand ausgerichtet.", "stimmen_moeglich": False})
     (d / "instrumental.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf8")
     return info

@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "Δικές μου ηχογραφήσεις",
     "Mehrspieler-Aufnahmen": "Ηχογραφήσεις πολλών παικτών",
     "Nur {} % der erkannten Wörter standen im Text.": "Μόνο το {} % των λέξεων που αναγνωρίστηκαν υπήρχε στο κείμενο.",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "Περιείχε {} πακέτα. Μεταφέρθηκε το μεγαλύτερο.",
+    "{} Zeilen verschoben.": "Μετακινήθηκαν {} γραμμές.",
     "GitHub nicht erreichbar: {}": "Το GitHub δεν είναι προσβάσιμο: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Πακέτα μεταγλώττισης για το The Choicer Voicer. Ανάπτυξη από τον Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Ελεύθερο λογισμικό υπό την άδεια GNU General Public License v3.0 (GPL-3.0): μπορείς να χρησιμοποιείς, να τροποποιείς και να διανέμεις περαιτέρω το Voicitool· οι τροποποιημένες εκδόσεις πρέπει να κυκλοφορούν ξανά υπό την GPL-3.0.",

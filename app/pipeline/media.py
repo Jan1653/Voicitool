@@ -203,11 +203,12 @@ BLACK_P98, WHITE_P02, FLAT_STD = 0.10, 0.88, 0.020   # schwarz, weiß, flau
 BLUR_FACTOR = 2.0           # vermeidbar unscharf: im selben Bild gibt es ein doppelt so scharfes
 
 
-def _win_rgb(src, a, dur, w, h):
-    """Kurzes Fenster als rohe RGB-Bilder holen. Leeres Feld, wenn ffmpeg nichts liefert."""
+def _win_rgb(src, a, dur, w, h, fps):
+    """Kurzes Fenster als rohe RGB-Bilder holen. Leeres Feld, wenn ffmpeg nichts liefert.
+    Die feste Bildrate ist wichtig: bei variabler Bildrate laegen die berechneten Zeiten sonst daneben."""
     try:
         p = run([FFMPEG, "-v", "error", "-ss", f"{max(0.0, a):.3f}", "-t", f"{dur:.3f}", "-i", str(src),
-                 "-vf", f"scale={w}:{h}", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"])
+                 "-vf", f"scale={w}:{h},fps={fps:.6f}", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"])
     except RuntimeError:
         return np.zeros((0, h, w, 3), np.uint8)
     n = len(p.stdout) // (w * h * 3)
@@ -261,7 +262,7 @@ def pick_frame(src, start, end, dst, size, fps, width=640):
     oh = max(2, int(round(ow * h / w / 2)) * 2)
     a = max(0.0, start + FRAME_WIN[0])
     dur = min(FRAME_WIN[1] - FRAME_WIN[0], max(0.10, end + 0.05 - a))
-    fr = _win_rgb(src, a, dur, ow, oh)
+    fr = _win_rgb(src, a, dur, ow, oh, fps)
     if len(fr) < 2:
         return grab_frame(src, t0, dst, width)
     times = [a + k / fps for k in range(len(fr))]

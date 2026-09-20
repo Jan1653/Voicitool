@@ -264,7 +264,7 @@ def _div_blocks(s, start_re):
     out = []
     for m in re.finditer(start_re, s):
         i, depth = m.end(), 1
-        for t in re.finditer(r"<(/?)div\b[^>]*>", s[i:]):
+        for t in re.finditer(r"""<(/?)div\b(?:[^>"']|"[^"]*"|'[^']*')*>""", s[i:]):
             depth += -1 if t.group(1) else 1
             if depth == 0:
                 out.append(s[i:i + t.start()])
@@ -274,7 +274,7 @@ def _div_blocks(s, start_re):
 
 def fetch_genius(url):
     """Liedtext einer Genius-Seite holen. Abschnittsmarken wie [Refrain] fliegen raus."""
-    if not re.match(r"https://genius\.com/[\w%!.,'()+-]+$", url or ""):
+    if not re.match(r"https://genius\.com/[A-Za-z0-9%!.,'()+_-]+\Z", url or ""):
         raise ValueError("Ungültige Adresse")
     page = _get(url, timeout=20)
     parts = []
@@ -286,8 +286,10 @@ def fetch_genius(url):
         parts.append(html.unescape(re.sub(r"<[^>]+>", "", inner)))
     # Abschnittsmarken wie „[Verse 2: Natalia]“ bleiben stehen: Voicitool liest daraus, wer singt,
     # und entfernt sie danach selbst aus dem Text.
-    lines = [l.strip() for l in "\n".join(parts).splitlines()]
-    return "\n".join(l for l in lines if l)
+    lines = [l.strip() for l in "\n".join(parts).splitlines() if l.strip()]
+    if not lines:
+        raise RuntimeError("Von dieser Genius-Seite kam kein Text. Probier einen anderen Treffer.")
+    return "\n".join(lines)
 
 
 def lyrics_ovh(query):
@@ -353,6 +355,8 @@ def _wikitext_to_text(w):
 
 def fetch_fandom(ident):
     api, title = ident.split("|", 1)
+    if not re.match(r"https://[a-z0-9-]+\.fandom\.com(?:/[a-z-]{2,5})?/api\.php\Z", api):
+        raise ValueError("Ungültige Adresse")
     data = json.loads(_get(api + "?action=parse&prop=wikitext&format=json&page=" + urllib.parse.quote(title)))
     return _wikitext_to_text(data.get("parse", {}).get("wikitext", {}).get("*", ""))
 

@@ -2211,7 +2211,7 @@ $('#btnImportPack').onclick = () => pickFromGame(
       search: `${p.title} ${p.name} ${p.authors || ''}`,
       info: `<b data-nolang>${esc(p.title)}</b>`
         + infoRow('Zeilen', p.lines)
-        + (p.authors ? infoRow('Von', p.authors) : '')
+        + (p.authors?.length ? infoRow('Von', [].concat(p.authors).join(', ')) : '')
         + infoRow('Video', p.video ? tf('ja') : tf('fehlt'))
         + (p.modified ? infoRow('Geändert', whenText(p.modified)) : '')
         + `<div class="muted small" style="margin-top:8px">${esc(tf('Zeilen, Sprecher und Zeiten werden übernommen. Es wird nichts neu erkannt.'))}</div>`
@@ -2308,12 +2308,18 @@ async function handleDrop(dt) {
   const files = [...(dt.files || [])].filter(f => f.size || f.type);
   for (const dir of dirs) {
     const found = await readDirFiles(dir, dir.name);
-    if (found.length) await importDropped(found, dir.name);
+    if (!found.length) continue;
+    // Pack oder nur ein Ordner mit Videos? Sonst lädt man hunderte MB hoch und bekommt eine Absage
+    const isPack = found.some(x => /\.ogg$/i.test(x.path)) && found.some(x => /\.(ini|txt)$/i.test(x.path));
+    if (isPack) { await importDropped(found, dir.name); continue; }
+    const vids = found.map(x => x.file).filter(f => /\.(mp4|mkv|mov|webm|avi|m4v|ogv|flv|wmv|ts|mpg|mpeg)$/i.test(f.name));
+    if (vids.length) uploadFiles(vids);
+    else toast(tf('Darin ist kein Pack: es fehlen die Sprachclips oder die Zeilen-Dateien.'), true, 7000);
   }
   const zips = files.filter(f => /\.zip$/i.test(f.name));
   for (const z of zips) await importDropped([{ file: z, path: z.name }], z.name.replace(/\.zip$/i, ''));
   const rest = files.filter(f => !/\.zip$/i.test(f.name));
-  if (rest.length && !dirs.length) uploadFiles(rest);
+  if (rest.length) uploadFiles(rest);
 }
 
 /* Ordner rekursiv auslesen (readEntries liefert höchstens 100 Einträge auf einmal) */
@@ -2348,7 +2354,8 @@ async function importDropped(found, name) {
     const r = await waitJob(data.job);
     clearUploadState();
     projectSig = ''; await refreshState();
-    toast(tf('Fertig. Das Projekt ist offen zum Bearbeiten.'));
+    toast(r?.more ? tf('Darin waren {} Packs. Übernommen wurde das größte.', r.more + 1)
+                  : tf('Fertig. Das Projekt ist offen zum Bearbeiten.'), false, r?.more ? 7000 : 3500);
     if (r?.id) openProject(r.id);
   } catch (e) {
     clearUploadState();
@@ -2388,7 +2395,7 @@ async function openProject(pid, fromEl) {
 function showEditor(pid, data) {
   S.pid = pid; S.p = data;
   S.p.cuts = S.p.cuts || [];
-  S.undo = []; S.redo = []; S.sel = null; S.viewStart = 0;
+  S.undo = []; S.redo = []; S.sel = null; S.multi = new Set(); S.viewStart = 0;
   setCutMode(false);
   seenItems.delete($('#lineList'));   // Zeilen eines neu geöffneten Projekts nicht einzeln einblenden
   S.voices = null;
@@ -2777,7 +2784,7 @@ function lineHtml(l, i) {
   const repBadge = master
     ? `<span class="rep" data-master="${master.id}" title="Wiederholung: nutzt die Aufnahme von Zeile ${lineNo(master)} („${esc(master.text)}“)">${ic('repeat')}<span>wie #${lineNo(master)}</span></span>`
     : (reps.length ? `<span class="rep" data-first-rep="${reps[0].id}" title="Diese Aufnahme wird ${reps.length + 1}× im Video abgespielt">${ic('repeat')}<span>×${reps.length + 1}</span></span>` : '');
-  return `<div class="line ${S.sel === l.id ? 'sel' : ''} ${master ? 'repeat' : ''}" data-id="${l.id}" style="--c:${c0?.color || '#666'}">
+  return `<div class="line ${S.sel === l.id ? 'sel' : ''} ${S.sel !== l.id && isSel(l.id) ? 'msel' : ''} ${master ? 'repeat' : ''}" data-id="${l.id}" style="--c:${c0?.color || '#666'}">
     <div class="line-head">
       <span class="idx">${i + 1}</span>${repBadge}
       <select class="char-select" style="--c:${c0?.color || '#666'}">${charOptions(l.chars[0])}</select>
@@ -2818,9 +2825,30 @@ function renderLines() {
   $('#lineCount').textContent = S.p.lines.length;
 }
 
-function selectLine(id, { seekTo = false, scroll = true, reveal = true } = {}) {
+/* Mehrfachauswahl: Strg und Klick nimmt Zeilen dazu. Die zuerst gewählte Zeile bleibt die Hauptzeile,
+   nur sie zeigt die Knopfleiste; verschoben wird die ganze Auswahl gemeinsam. */
+const isSel = id => S.sel === id || !!S.multi?.has(id);
+const selectedLines = () => S.p.lines.filter(l => isSel(l.id));
+function markSelection() {
+  $$('#lineList .line').forEach(el => {
+    el.classList.toggle('sel', el.dataset.id === S.sel);
+    el.classList.toggle('msel', el.dataset.id !== S.sel && isSel(el.dataset.id));
+  });
+  drawTimeline();
+}
+function toggleSel(id) {
+  if (!S.sel || S.sel === id) return;
+  S.multi.has(id) ? S.multi.delete(id) : S.multi.add(id);
+  markSelection();
+}
+
+function selectLine(id, { seekTo = false, scroll = true, reveal = true, keep = false } = {}) {
   S.sel = id;
-  $$('#lineList .line').forEach(el => el.classList.toggle('sel', el.dataset.id === id));
+  if (!keep) S.multi?.clear();
+  $$('#lineList .line').forEach(el => {
+    el.classList.toggle('sel', el.dataset.id === id);
+    el.classList.toggle('msel', el.dataset.id !== id && isSel(el.dataset.id));
+  });
   const l = lineById(id);
   if (!l) return;
   if (seekTo) seek(l.start);
@@ -2841,6 +2869,12 @@ function refreshLine(id) {
 const list = $('#lineList');
 list.addEventListener('mousedown', e => {
   const el = e.target.closest('.line'); if (!el) return;
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault();
+    if (!S.sel) selectLine(el.dataset.id, { scroll: false });
+    else toggleSel(el.dataset.id);
+    return;
+  }
   if (S.sel !== el.dataset.id) selectLine(el.dataset.id, { scroll: false });
 });
 list.addEventListener('click', e => {
@@ -4391,7 +4425,7 @@ function drawTimeline() {
       const x = t2x(l.start), w = Math.max(2, (l.end - l.start) * S.pxPerSec);
       const isDrag = drag?.line === l;
       drawBlock(x, laneY(laneOf(cid)) + 2, w, bh, c.color, {
-        selected: l.id === S.sel, alpha: l.repeat_of ? 0.4 : (l.id === S.sel ? 1 : 0.72),
+        selected: isSel(l.id), alpha: l.repeat_of ? 0.4 : (isSel(l.id) ? 1 : 0.72),
         text: l.text || '…', icon: l.repeat_of ? 'repeat' : null, dashed: !!l.repeat_of,
         invalid: isDrag && drag.invalid,
       });
@@ -4583,10 +4617,17 @@ cv.addEventListener('mousedown', e => {
     };
   } else {
     const l = h.line;
+    if ((e.ctrlKey || e.metaKey) && h.kind === 'move') {   // Strg: Zeile zur Auswahl dazu oder weg
+      if (!S.sel) selectLine(l.id, { reveal: false }); else toggleSel(l.id);
+      return;
+    }
     const dragChar = l.chars.find(c => laneOf(c) === h.laneIdx) || l.chars[0];
     const orig = { start: l.start, end: l.end, chars: [...l.chars] }, tDown = x2t(x);
     const snap = JSON.stringify({ lines: S.p.lines, characters: S.p.characters });
-    selectLine(l.id, { reveal: false });
+    const group = isSel(l.id) ? selectedLines().filter(o => o !== l) : [];
+    const groupOrig = group.map(o => ({ o, start: o.start, end: o.end }));
+    const groupIds = new Set([l.id, ...group.map(o => o.id)]);
+    if (!groupOrig.length) selectLine(l.id, { reveal: false });
     // Freier Bereich um die Zeile (für Ränder)
     const gap = freeGap(l.chars, (l.start + l.end) / 2, l.id) || { lo: 0, hi: S.p.duration };
     // Grenzt direkt eine Zeile desselben Sprechers an? Dann wandert die gemeinsame Kante:
@@ -4618,6 +4659,26 @@ cv.addEventListener('mousedown', e => {
           l.end = r3(clamp(snapTime(orig.end + dt, l.id, buddy?.id), l.start + MIN_LEN, hi));
           if (buddy) buddy.start = r3(l.end + GAP);
           seek(l.end);
+        } else if (groupOrig.length) {
+          // Mehrere Zeilen zusammen: nur in der Zeit, der Sprecher bleibt bei allen
+          const len = orig.end - orig.start;
+          let s = clamp(snapTime(orig.start + dt, l.id), 0, S.p.duration - len);
+          let shift = s - orig.start;
+          for (const it of groupOrig) {   // keine darf über den Rand geschoben werden
+            const ln = it.end - it.start;
+            shift = clamp(shift, -it.start, S.p.duration - ln - it.start);
+          }
+          d.invalid = false;
+          l.start = r3(orig.start + shift); l.end = r3(orig.start + shift + len);
+          for (const it of groupOrig) {
+            it.o.start = r3(it.start + shift);
+            it.o.end = r3(it.end + shift);
+          }
+          const clash = ln => S.p.lines.some(o => o !== ln && !groupIds.has(o.id)
+            && o.chars.some(c => ln.chars.includes(c))
+            && ln.start < o.end + GAP && ln.end > o.start - GAP);
+          if (clash(l) || groupOrig.some(it => clash(it.o))) d.invalid = true;
+          seek(l.start);
         } else {
           // Verschieben, auch in eine andere Sprecher-Spur
           const lane = laneAt(ev.offsetY);
@@ -4647,11 +4708,17 @@ cv.addEventListener('mousedown', e => {
         if (d.invalid) {
           Object.assign(l, orig);
           if (buddy) Object.assign(buddy, buddyOrig);
+          for (const it of groupOrig) Object.assign(it.o, { start: it.start, end: it.end });
           toast(BLOCK_MSG, true);
           drawTimeline();
           return;
         }
         S.undo.push(snap); if (S.undo.length > 200) S.undo.shift(); S.redo = [];
+        if (groupOrig.length) {
+          afterChange(null);
+          toast(tf('{} Zeilen verschoben.', groupOrig.length + 1));
+          return;
+        }
         const trimmed = h.kind === 'move' && Math.abs((l.end - l.start) - (orig.end - orig.start)) > 0.001;
         if (trimmed) toast(TRIM_MSG);
         afterChange(l.id, l.chars.join() !== orig.chars.join());

@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "Свои записи",
     "Mehrspieler-Aufnahmen": "Записи из совместной игры",
     "Nur {} % der erkannten Wörter standen im Text.": "В тексте оказалось лишь {} % распознанных слов.",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "Паков внутри: {}. Взят самый большой.",
+    "{} Zeilen verschoben.": "Перемещено реплик: {}.",
     "GitHub nicht erreichbar: {}": "GitHub недоступен: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Даб паки для The Choicer Voicer. Разработано Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Свободное ПО под лицензией GNU General Public License v3.0 (GPL-3.0): ты можешь использовать, изменять и распространять Voicitool; изменённые версии должны снова выходить под GPL-3.0.",

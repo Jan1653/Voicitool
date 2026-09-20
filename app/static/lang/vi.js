@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "Bản ghi của mình",
     "Mehrspieler-Aufnahmen": "Bản ghi nhiều người chơi",
     "Nur {} % der erkannten Wörter standen im Text.": "Chỉ {} % số từ nhận diện được có trong văn bản.",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "Bên trong có {} gói. Gói lớn nhất đã được lấy.",
+    "{} Zeilen verschoben.": "Đã di chuyển {} dòng.",
     "GitHub nicht erreichbar: {}": "Không kết nối được GitHub: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Gói lồng tiếng cho The Choicer Voicer. Phát triển bởi Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Phần mềm tự do theo giấy phép GNU General Public License v3.0 (GPL-3.0): bạn được phép dùng, sửa đổi và chia sẻ Voicitool; các phiên bản sửa đổi phải được phát hành lại theo GPL-3.0.",

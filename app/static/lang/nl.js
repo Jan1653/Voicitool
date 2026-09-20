@@ -452,6 +452,8 @@
     "Eigene Aufnahmen": "Eigen opnames",
     "Mehrspieler-Aufnahmen": "Multiplayer-opnames",
     "Nur {} % der erkannten Wörter standen im Text.": "Slechts {} % van de herkende woorden stond in de tekst.",
+    "Darin waren {} Packs. Übernommen wurde das größte.": "Er zaten {} packs in. Het grootste is overgenomen.",
+    "{} Zeilen verschoben.": "{} regels verplaatst.",
     "GitHub nicht erreichbar: {}": "GitHub niet bereikbaar: {}",
     "Dub Packs für The Choicer Voicer. Entwickelt von Jan1653.": "Dub packs voor The Choicer Voicer. Gemaakt door Jan1653.",
     "Freie Software unter der GNU General Public License v3.0 (GPL-3.0): Du darfst Voicitool nutzen, ändern und weitergeben; veränderte Versionen müssen wieder unter der GPL-3.0 erscheinen.": "Vrije software onder de GNU General Public License v3.0 (GPL-3.0): je mag Voicitool gebruiken, wijzigen en verspreiden; gewijzigde versies moeten weer onder de GPL-3.0 verschijnen.",
