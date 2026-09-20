@@ -1,5 +1,16 @@
 [
   {
+    "build": 30,
+    "date": "2026-09-20",
+    "changes": [
+      "Drag a finished pack into Voicitool, as a folder or as a ZIP, and it opens as a project to edit. Nothing is processed again. Before, this ended with \"no supported video format\".",
+      "Genius is a new source under \"Text vorgeben\", next to LRCLIB, lyrics.ovh, Fandom and subtitles.",
+      "Names from the text: if the lyrics or the script say who sings or speaks, for example [Verse 2: Natalia], [TELEMACHUS] or \"PETER:\", the characters are named after them instead of Speaker 1. On Legendary from EPIC: The Musical three of six voices got their real names.",
+      "Numbered lyric lines no longer leave their numbers in the text.",
+      "The new texts are translated into all 26 languages."
+    ]
+  },
+  {
     "build": 29,
     "date": "2026-09-20",
     "changes": [

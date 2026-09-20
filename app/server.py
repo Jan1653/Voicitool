@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app import config  # noqa: E402  (setzt HF_HOME usw. vor allen ML-Imports)
 
 import uvicorn  # noqa: E402
-from fastapi import Body, FastAPI, File, HTTPException, UploadFile  # noqa: E402
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
 
@@ -482,6 +482,51 @@ async def upload(file: UploadFile = File(...)):
         while chunk := await file.read(1 << 20):
             f.write(chunk)
     return {"filename": target.name}
+
+
+@app.post("/api/game/import-upload")
+async def game_import_upload(files: list[UploadFile] = File(...), paths: list[str] = Form(...),
+                             name: str = Form(""), ui_lang: str = Form("")):
+    """Fertiges Pack als ZIP oder als Ordner hereinziehen und als Projekt übernehmen."""
+    import uuid
+    import zipfile
+    from app.pipeline import packs
+
+    tmp = config.DATA_DIR / "import" / uuid.uuid4().hex
+    tmp.mkdir(parents=True)
+    try:
+        for f, rel in zip(files, list(paths) + [""] * len(files)):
+            parts = [p for p in str(rel or f.filename or "datei").replace("\\", "/").split("/")
+                     if p not in ("", ".", "..")]
+            dst = tmp.joinpath(*(parts or ["datei"]))
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            with open(dst, "wb") as out:
+                while chunk := await f.read(1 << 20):
+                    out.write(chunk)
+        only = [p for p in tmp.rglob("*") if p.is_file()]
+        if len(only) == 1 and only[0].suffix.lower() == ".zip":
+            out_dir = tmp / "_entpackt"
+            out_dir.mkdir()
+            try:
+                with zipfile.ZipFile(only[0]) as z:
+                    z.extractall(out_dir)
+            except zipfile.BadZipFile:
+                raise HTTPException(400, "Die ZIP-Datei lässt sich nicht öffnen.")
+            only[0].unlink(missing_ok=True)
+        src = packs.find_pack_dir(tmp)
+        if src is None:
+            raise HTTPException(400, "Darin ist kein Pack: es fehlen die Sprachclips oder die Zeilen-Dateien.")
+    except Exception:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+
+    def run(job, report):
+        try:
+            return {"id": packs.import_pack(src, name or None, report, ui_lang=ui_lang or None)}
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    return {"job": jobs.submit("import", "", run, f"Pack übernehmen: {name or src.name}", lane="cpu")}
 
 
 @app.post("/api/download")

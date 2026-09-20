@@ -2299,7 +2299,62 @@ const dz = $('#dropZone');
 const hasFiles = e => [...(e.dataTransfer?.types || [])].includes('Files');
 ['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (!$('#home').hidden && hasFiles(e)) dz.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('over'); }));
-document.addEventListener('drop', e => { if (!$('#home').hidden && e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); });
+document.addEventListener('drop', e => { if (!$('#home').hidden) handleDrop(e.dataTransfer); });
+
+/* Hereingezogen wird beides: Videos für den Eingang und fertige Packs (ZIP oder Ordner) zum Bearbeiten. */
+async function handleDrop(dt) {
+  // beides sofort auslesen: nach dem ersten await ist das DataTransfer-Objekt leer
+  const dirs = [...(dt.items || [])].map(i => i.webkitGetAsEntry?.()).filter(en => en && en.isDirectory);
+  const files = [...(dt.files || [])].filter(f => f.size || f.type);
+  for (const dir of dirs) {
+    const found = await readDirFiles(dir, dir.name);
+    if (found.length) await importDropped(found, dir.name);
+  }
+  const zips = files.filter(f => /\.zip$/i.test(f.name));
+  for (const z of zips) await importDropped([{ file: z, path: z.name }], z.name.replace(/\.zip$/i, ''));
+  const rest = files.filter(f => !/\.zip$/i.test(f.name));
+  if (rest.length && !dirs.length) uploadFiles(rest);
+}
+
+/* Ordner rekursiv auslesen (readEntries liefert höchstens 100 Einträge auf einmal) */
+async function readDirFiles(dir, prefix, out = [], depth = 0) {
+  if (depth > 3 || out.length > 4000) return out;
+  const reader = dir.createReader();
+  for (;;) {
+    const batch = await new Promise(res => reader.readEntries(res, () => res([])));
+    if (!batch.length) break;
+    for (const en of batch) {
+      const path = `${prefix}/${en.name}`;
+      if (en.isDirectory) await readDirFiles(en, path, out, depth + 1);
+      else out.push({ file: await new Promise(res => en.file(res, () => res(null))), path });
+    }
+  }
+  return out.filter(x => x.file);
+}
+
+/* Pack übernehmen: Dateien hochladen, dann wie bei „Pack bearbeiten“ als Projekt anlegen */
+async function importDropped(found, name) {
+  const mb = Math.round(found.reduce((s, x) => s + x.file.size, 0) / 1048576);
+  setUploadState(tf('Pack „{}“ wird gelesen … ({} MB)', name, mb));
+  const fd = new FormData();
+  for (const x of found) { fd.append('files', x.file, x.file.name); fd.append('paths', x.path); }
+  fd.append('name', name);
+  fd.append('ui_lang', window.VT_I18N?.lang || '');
+  try {
+    const res = await fetch('/api/game/import-upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Fehler');
+    setUploadState(tf('Pack wird übernommen …'));
+    const r = await waitJob(data.job);
+    clearUploadState();
+    projectSig = ''; await refreshState();
+    toast(tf('Fertig. Das Projekt ist offen zum Bearbeiten.'));
+    if (r?.id) openProject(r.id);
+  } catch (e) {
+    clearUploadState();
+    toast(e.message, true, 8000);
+  }
+}
 $('#fileInput').onchange = e => uploadFiles(e.target.files);
 async function uploadFiles(files) {
   for (const f of files) {
@@ -3869,6 +3924,7 @@ function renderExportChecks() {
       tf(rep.reason || 'Es war zu wenig zuzuordnen.'))) + ' ' + esc(tf('Prüfe, ob er zu diesem Video gehört, und starte die Verarbeitung neu.'))));
   } else if (rt && rep && rep.used) {
     out.push(row('ok', 'check-circle', esc(tf('Vorgegebener Text übernommen: {} Wörter berichtigt, {} ergänzt.', rep.replaced || 0, rep.inserted || 0))));
+    if (rep.named) out.push(row('ok', 'user', esc(tf('Namen aus dem Text übernommen: {} Figuren.', rep.named))));
   }
   if (unnamed.length) out.push(row('warn', 'warning', `Noch nicht benannt: ${unnamed.map(c => esc(c.name)).join(', ')} (Tab „Charaktere")`));
   if (long.length) out.push(row('warn', 'warning', `${long.length} Zeile(n) länger als 60 s. Das Spiel lädt sie nicht, sie werden gekürzt. ${link(long, 'Erste zeigen')}`));

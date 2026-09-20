@@ -184,6 +184,23 @@ def _mix_into(buf, clip, at):
     buf[a:a + len(part)] += part
 
 
+def find_pack_dir(root):
+    """In einem entpackten Haufen den Ordner finden, der wirklich ein Pack ist. -> Pfad oder None"""
+    root = Path(root)
+    best, best_n = None, 0
+    for d in [root] + sorted(x for x in root.rglob("*") if x.is_dir()):
+        try:
+            names = [f.name.lower() for f in d.iterdir() if f.is_file()]
+        except OSError:
+            continue
+        n = sum(1 for x in names if x.endswith(".ogg"))
+        if not n or not any(x.endswith((".ini", ".txt")) for x in names):
+            continue
+        if n > best_n:   # der Ordner mit den meisten Sprachclips ist das Pack
+            best, best_n = d, n
+    return best
+
+
 def import_pack(pack_path, name=None, report=None, category=None, ui_lang=None):
     """Fertiges Pack als Projekt anlegen: Video, Zeilen, Figuren, Stimmen- und Hintergrund-Spur. -> Projekt-Kennung"""
     say = report or (lambda step, pct, msg="": None)

@@ -3,6 +3,7 @@
   Datei     Untertitel, die in der Videodatei selbst stecken (MKV, MP4): passen exakt zum Video
   YouTube   Untertitel des Uploaders (Adresse wird beim Herunterladen gemerkt), automatische nur nachrangig
   LRCLIB    freie Liedtext-Datenbank (lrclib.net), viele Sprachen, oft mit Zeitstempeln je Zeile
+  Genius    genius.com, größte Liedtext-Sammlung; der Text wird erst beim Anklicken geholt
   lyrics.ovh  Liedtexte über „Interpret - Titel“
   Fandom    Transkripte von Serien aus den Fandom-Wikis (z. B. familyguy.fandom.com), über deren API
 Alle Quellen werden gleichzeitig abgefragt; fällt eine aus, kommen die anderen trotzdem.
@@ -241,6 +242,54 @@ def lrclib(query):
     return out
 
 
+def genius(query):
+    """Liedtexte bei genius.com suchen. Der Text selbst kommt erst beim Anklicken (eine Seite je Treffer)."""
+    data = json.loads(_get("https://genius.com/api/search/song?q=" + urllib.parse.quote(query) + "&per_page=8"))
+    out, seen = [], set()
+    for sec in data.get("response", {}).get("sections", []):
+        for h in sec.get("hits", []):
+            r = h.get("result") or {}
+            url = r.get("url") or ""
+            if h.get("type") != "song" or not url.startswith("https://genius.com/") or url in seen:
+                continue
+            seen.add(url)
+            artist = (r.get("primary_artist") or {}).get("name")
+            out.append({"source": "Genius", "id": url, "title": r.get("title") or "?",
+                        "subtitle": " · ".join(x for x in (artist, r.get("release_date_for_display")) if x)})
+    return out[:8]
+
+
+def _div_blocks(s, start_re):
+    """Inhalt aller <div …>-Blöcke, die auf start_re passen, samt verschachtelter divs."""
+    out = []
+    for m in re.finditer(start_re, s):
+        i, depth = m.end(), 1
+        for t in re.finditer(r"<(/?)div\b[^>]*>", s[i:]):
+            depth += -1 if t.group(1) else 1
+            if depth == 0:
+                out.append(s[i:i + t.start()])
+                break
+    return out
+
+
+def fetch_genius(url):
+    """Liedtext einer Genius-Seite holen. Abschnittsmarken wie [Refrain] fliegen raus."""
+    if not re.match(r"https://genius\.com/[\w%!.,'()+-]+$", url or ""):
+        raise ValueError("Ungültige Adresse")
+    page = _get(url, timeout=20)
+    parts = []
+    for inner in _div_blocks(page, r'<div[^>]*data-lyrics-container="true"[^>]*>'):
+        for junk in _div_blocks(inner, r'<div[^>]*data-exclude-from-selection="true"[^>]*>'):
+            inner = inner.replace(junk, "")   # Kopfzeile mit Mitwirkenden und Übersetzungen
+        inner = re.sub(r"<br\s*/?>", "\n", inner)
+        inner = re.sub(r"</(p|div)>", "\n", inner)
+        parts.append(html.unescape(re.sub(r"<[^>]+>", "", inner)))
+    # Abschnittsmarken wie „[Verse 2: Natalia]“ bleiben stehen: Voicitool liest daraus, wer singt,
+    # und entfernt sie danach selbst aus dem Text.
+    lines = [l.strip() for l in "\n".join(parts).splitlines()]
+    return "\n".join(l for l in lines if l)
+
+
 def lyrics_ovh(query):
     parts = re.split(r"\s+[-–—]\s+", query, maxsplit=1)
     if len(parts) != 2:
@@ -327,6 +376,7 @@ def search(query, filename=None, lang=None):
                 jobs["YouTube"] = ex.submit(youtube_subs, info["url"])
         if query:
             jobs["LRCLIB"] = ex.submit(lrclib, query)
+            jobs["Genius"] = ex.submit(genius, query)
             jobs["lyrics.ovh"] = ex.submit(lyrics_ovh, query)
             jobs["Fandom"] = ex.submit(fandom, query, lang)
         done, _ = wait(list(jobs.values()), timeout=SEARCH_TIMEOUT)
@@ -350,4 +400,6 @@ def search(query, filename=None, lang=None):
 def fetch(source, ident):
     if source == "Fandom":
         return fetch_fandom(ident)
+    if source == "Genius":
+        return fetch_genius(ident)
     raise ValueError("Unbekannte Quelle")

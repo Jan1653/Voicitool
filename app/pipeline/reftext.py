@@ -9,15 +9,28 @@ Whisper erkennt wie immer mit Zeitstempeln. Danach werden seine Wörter mit dem 
   4. Anfang und Ende des vorgegebenen Texts, die im Video nicht vorkommen (ganzer Song, Clip nur ein Teil),
      bleiben weg
 Jede Zeile des vorgegebenen Texts endet mit einer Zeilengrenze (Liedzeile = eigene Zeile im Pack).
+Steht im Text, wer singt oder spricht („[Verse 2: Natalia]“, „PETER: Hallo“), wird der Name gemerkt und
+später als Name der Figur vorgeschlagen.
 """
 import re
 import unicodedata
 from difflib import SequenceMatcher
 
 LRC_TAG = re.compile(r"\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]")
-SECTION = re.compile(r"^\s*[\[(](?:verse|chorus|refrain|bridge|intro|outro|hook|pre-chorus|strophe|vers)[^\])]*[\])]\s*$", re.I)
+# Eine Zeile, die nur aus einer Marke besteht: „[Verse 2: Natalia]“, „[TELEMACHUS]“, „(Chorus)“
+MARK = re.compile(r"^\s*(?:\d{1,3}[.)]\s*)?[\[(]([^\])]{1,60})[\])]\s*$")
+# Wörter, die einen Abschnitt oder eine Regieanweisung meinen, keinen Namen
+SECTION_WORD = re.compile(r"\b(verse|chorus|refrain|bridge|intro|outro|hook|pre-chorus|post-chorus|strophe|vers|"
+                          r"part|teil|couplet|estribillo|instrumental|break|breakdown|solo|interlude|reprise|coda|"
+                          r"finale|spoken|skit|sample|drop|ad-?libs?|silence|applause|applaus|laughter|lachen|"
+                          r"music|musik|cheering|crowd|whisper|flüster|singing|chant|sfx|sound|effects)\b", re.I)
+MANY = re.compile(r"\s(?:&|\+|,|und|and|con|with|feat\.?|x)\s", re.I)   # mehrere Namen: dann kein Hinweis
+LIST_NO = re.compile(r"^\s*\d{1,3}[.)]\s+(?=\S)")           # „12. “ am Zeilenanfang (nummerierte Liedtexte)
 BRACKETS = re.compile(r"\[[^\]]*\]")           # Regieanweisungen, Abschnitte: [Chorus], [lacht]
 SPEAKER = re.compile(r"^\s*([\w .'\-]{1,30}):\s+")   # „Peter: Hallo“ im Drehbuch
+NOT_A_NAME = {"both", "all", "alle", "everyone", "everybody", "together", "zusammen", "chorus", "chor",
+              "refrain", "ensemble", "cast", "group", "gruppe", "beide", "tutti", "todos", "coro",
+              "everyone else", "alle zusammen", "all together"}
 MIN_MATCH = 0.3        # so viel des Erkannten muss wiederzufinden sein, sonst passt der Text nicht zum Video
 MIN_WORD_GAP = 0.12    # Mindestzeit je eingefügtem Wort, wenn Whisper dort nichts gehört hat (s)
 MIN_VOICED = 0.5       # eingefügt wird nur, wo die Stimmen-Spur so viel Stimme zeigt (sonst steht das Wort nur im Text)
@@ -41,14 +54,45 @@ def _norm(tok):
     return re.sub(r"[^\w']", "", t).strip("'")
 
 
+def _who(name):
+    """Namen aus einer Abschnittsmarke oder einem Sprecher-Vorsatz säubern. Mehrere Namen: kein Hinweis."""
+    name = re.sub(r"\s+", " ", (name or "").strip(" .:-–—'\"“”„"))
+    if not name or MANY.search(name) or not any(ch.isalpha() for ch in name):
+        return None
+    if len(name) > 30 or len(name.split()) > 4:
+        return None
+    if name.casefold() in NOT_A_NAME:
+        return None   # „Both“, „Alle“: sagt nicht, wer singt
+    return name.title() if name.isupper() else name   # „TELEMACHUS“ -> „Telemachus“
+
+
 def clean(raw):
+    """Nur die Zeilen des vorgegebenen Texts (ohne Namen)."""
+    return [line for line, _ in clean_lines(raw)]
+
+
+def clean_lines(raw):
     """Vorgegebenen Text in Zeilen zerlegen: Zeitmarken, Abschnittsnamen, Klammer-Anweisungen und
-    Sprechernamen am Zeilenanfang fallen weg, leere Zeilen auch."""
+    Sprechernamen am Zeilenanfang fallen weg, leere Zeilen auch.
+    -> [(Zeile, wer sie singt oder spricht oder None)]"""
     lines = []
+    who = None
     for line in (raw or "").replace("\r", "").split("\n"):
         line = LRC_TAG.sub("", line)
-        if SECTION.match(line):
+        if not line.strip():
             continue
+        mark = MARK.match(line)
+        if mark:
+            inside = mark.group(1)
+            if SECTION_WORD.search(inside):
+                # „[Verse 2: Natalia]“ nennt den Namen hinter dem Doppelpunkt, „[Bridge]“ nennt keinen
+                who = _who(inside.split(":", 1)[1]) if ":" in inside else None
+            else:
+                who = _who(inside.split(":", 1)[-1])   # „[TELEMACHUS]“ ist selbst der Name
+            continue
+        line = LIST_NO.sub("", line)
+        spk = SPEAKER.match(line)
+        here = _who(spk.group(1)) if spk else who
         line = BRACKETS.sub(" ", line)
         line = NOTE.sub(" ", line)
         line = line.replace("(", " ").replace(")", " ")
@@ -56,17 +100,18 @@ def clean(raw):
         line = " ".join(_fold(w) for w in line.split())
         line = re.sub(r"\s+", " ", line).strip().strip('"“”„«» ')
         if line and any(ch.isalnum() for ch in line):
-            lines.append(line)
+            lines.append((line, here))
     return lines
 
 
 def tokens(lines):
-    """[(Wort wie geschrieben, vereinfacht, Zeilenende?)]"""
+    """[(Wort wie geschrieben, vereinfacht, Zeilenende?, wer)]. Nimmt Zeilen oder (Zeile, wer)."""
     out = []
-    for line in lines:
+    for item in lines:
+        line, who = item if isinstance(item, tuple) else (item, None)
         words = [w for w in line.split(" ") if _norm(w)]
         for i, w in enumerate(words):
-            out.append((w, _norm(w), i == len(words) - 1))
+            out.append((w, _norm(w), i == len(words) - 1, who))
     return out
 
 
@@ -74,9 +119,11 @@ def _spread(ref_toks, s, e, seg, p=0.95, spk=None):
     """Wörter gleichmäßig nach Zeichenzahl auf [s, e] verteilen."""
     lens = [max(1, len(t[1])) for t in ref_toks]
     total, t, out = float(sum(lens)), s, []
-    for (word, _, eol), n in zip(ref_toks, lens):
+    for (word, _, eol, who), n in zip(ref_toks, lens):
         d = (e - s) * n / total
         w = {"w": " " + word, "s": round(t, 3), "e": round(t + d, 3), "p": p, "seg": seg, "ref": True, "eol": eol}
+        if who:
+            w["who"] = who
         if spk is not None:
             w["spk"] = spk
         out.append(w)
@@ -98,7 +145,7 @@ def _voiced(env, a, b, fps=100):
 def apply(words, raw_text, env=None):
     """Whisper-Wörter mit dem vorgegebenen Text abgleichen. env: Hüllkurve der Stimmen-Spur (für Einfügungen).
     -> (neue Wörter, Bericht)"""
-    ref = tokens(clean(raw_text))
+    ref = tokens(clean_lines(raw_text))
     speech = [w for w in words if not w.get("sound") and not w.get("laugh") and _norm(w["w"])]
     ids = {id(w) for w in speech}
     others = [w for w in words if id(w) not in ids]
@@ -120,7 +167,10 @@ def apply(words, raw_text, env=None):
         edge = k < first or k > last
         if tag == "equal":
             for w, r in zip(W, R):
-                out.append(dict(w, w=(" " if w["w"].startswith(" ") else "") + r[0], ref=True, eol=r[2]))
+                new = dict(w, w=(" " if w["w"].startswith(" ") else "") + r[0], ref=True, eol=r[2])
+                if r[3]:
+                    new["who"] = r[3]
+                out.append(new)
         elif tag == "replace":
             ratio = len(R) / len(W)
             lo, hi = (0.6, 1.7) if edge else (0.4, 2.5)

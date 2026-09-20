@@ -1,4 +1,5 @@
 """Projekte anlegen, verarbeiten, speichern."""
+import bisect
 import json
 import re
 import shutil
@@ -6,6 +7,7 @@ import threading
 import time
 import unicodedata
 import uuid
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -441,6 +443,9 @@ def process(pid, report):
     np.save(d / "stimmen_env.npy", env.astype(np.float32))
     lines = segment.refine_bounds(segment.build_lines(words), env)
     _apply_lines(data, lines)
+    named = _names_from_text(data, words)   # „[Verse 2: Natalia]“ im vorgegebenen Text benennt die Figur
+    if named and (data.get("reftext") or {}).get("report"):
+        data["reftext"]["report"]["named"] = named
 
     # 6) Lachen erkennen (optional)
     if data["settings"].get("laugh", True):
@@ -557,6 +562,35 @@ def find_repeats(pid):
     count = mark_repeats(data["lines"])
     save(pid, data)
     return count
+
+
+def _names_from_text(data, words):
+    """Figuren nach den Namen benennen, die im vorgegebenen Text stehen. -> Anzahl benannter Figuren"""
+    hints = sorted((w for w in words if w.get("who")), key=lambda w: w["s"])
+    if not hints:
+        return 0
+    starts = [w["s"] for w in hints]
+    per = {}
+    for ln in data["lines"]:
+        lo = bisect.bisect_left(starts, ln["start"] - 0.2)
+        hi = bisect.bisect_right(starts, ln["end"] + 0.2)
+        names = [hints[k]["who"] for k in range(lo, hi)]
+        if not names:
+            continue
+        top = Counter(names).most_common(1)[0][0]
+        for cid in ln["chars"]:
+            per.setdefault(cid, []).append(top)
+    taken, n = set(), 0
+    for cid, names in per.items():
+        top, cnt = Counter(names).most_common(1)[0]
+        # nur bei klarer Mehrheit, und jeder Name nur einmal: sonst heißen zwei Figuren gleich
+        if len(names) >= 2 and cnt >= 0.6 * len(names) and top.casefold() not in taken:
+            ch = next((c for c in data["characters"] if c["id"] == cid), None)
+            if ch:
+                ch["name"] = top
+                taken.add(top.casefold())
+                n += 1
+    return n
 
 
 def _apply_lines(data, lines):
