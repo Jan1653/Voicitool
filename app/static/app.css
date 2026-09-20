@@ -169,8 +169,8 @@ textarea { resize: vertical; }
    Breite Fenster: zwei Spalten. --z (theme.js) lässt alles mit der Fenstergröße mitwachsen. */
 .home { flex: 1; min-height: 0; overflow: auto; padding: 20px; display: grid; gap: 16px; width: 100%; max-width: 1560px;
   margin: 0 auto; zoom: var(--z, 1);
-  grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(260px, 1fr) auto;
-  grid-template-areas: "drop" "inbox" "projects" "foot"; }
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(260px, 1fr) auto auto;
+  grid-template-areas: "drop" "inbox" "projects" "game" "foot"; }
 .home > .drop { grid-area: drop; }
 .inbox-card { grid-area: inbox; display: flex; flex-direction: column; min-height: 0; }
 .inbox-card .scroll-list { max-height: 34vh; }
@@ -182,8 +182,9 @@ textarea { resize: vertical; }
 .card-head h2 { margin: 0; flex: 1; min-width: 120px; }
 .card-head input[type=search] { width: min(260px, 100%); }
 @media (min-width: 1080px) {
-  .home { grid-template-columns: minmax(380px, 5fr) minmax(0, 7fr); grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas: "drop projects" "inbox projects" "foot foot"; }
+  /* Breit: links der Eingang, der bis ganz nach unten wächst, rechts die Projekte und darunter „Aus dem Spiel“ */
+  .home { grid-template-columns: minmax(380px, 5fr) minmax(0, 7fr); grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "drop projects" "inbox projects" "inbox game" "foot foot"; }
   .inbox-card .scroll-list { max-height: none; flex: 1; }
 }
 @media (max-height: 560px) { .home { grid-template-rows: auto auto minmax(200px, auto) auto; } }
@@ -192,6 +193,7 @@ textarea { resize: vertical; }
 .url-row { display: flex; gap: 8px; width: min(560px, 100%); margin-top: 4px; }
 .url-row input { flex: 1; }
 .url-subs { font-size: 12.5px; color: var(--muted); }
+.game-card { grid-area: game; }
 .game-card p { margin: 0 0 10px; }
 .game-list { display: flex; flex-direction: column; gap: 6px; max-height: 50vh; overflow: auto; margin: 4px 0 0; }
 
