@@ -15,6 +15,8 @@ später als Name der Figur vorgeschlagen.
 import html
 import re
 import unicodedata
+
+import numpy as np
 from difflib import SequenceMatcher
 
 LRC_TAG = re.compile(r"\[\d{1,2}:\d{2}(?:[.:]\d{1,3})?\]")
@@ -40,8 +42,14 @@ MIN_WORD_GAP = 0.12    # Mindestzeit je eingefügtem Wort, wenn Whisper dort nic
 MIN_VOICED = 0.3       # eingefügt wird nur, wo die Stimmen-Spur so viel Stimme zeigt (sonst steht das Wort nur im Text)
 MIN_OF_REF = 0.6       # oder: so viel des vorgegebenen Texts wurde wiedergefunden (Teiltext, z. B. nur der Refrain)
 # In Klammern: gesungener Hintergrund („(Merci)“) bleibt als Wort, echte Anmerkungen fallen weg
-NOTE = re.compile(r"\((?:[^)]*\b(?:laugh|lach|kicher|chuckl|giggl|sigh|seufz|scream|schrei|gasp|grunt|cough|hust|whisper|flüster|"
-                  r"music|musik|applaus|applause|instrumental|singing|sings|singt)[^)]*)\)", re.I)
+NOTE_WORD = re.compile(r"\b(?:laugh|lach|kicher|chuckl|giggl|sigh|seufz|scream|schrei|gasp|grunt|cough|hust|whisper|"
+                       r"flüster|music|musik|applaus|applause|instrumental|singing|sings|singt)", re.I)
+NOTE_PAREN = re.compile(r"\(([^()]{0,200})\)")   # feste Grenze: sonst rechnet der Ausdruck bei offenen Klammern ewig
+
+
+def _drop_notes(line):
+    """Anmerkungen in Klammern entfernen, gesungenes in Klammern („(Merci)“) behalten."""
+    return NOTE_PAREN.sub(lambda m: " " if NOTE_WORD.search(m.group(1)) else m.group(0), line)
 # Kopierschutz mancher Liedtext-Seiten: einzelne Buchstaben als gleich aussehende kyrillische/griechische Zeichen
 HOMOGLYPHS = str.maketrans("аеорсухіјѕԁɡАВЕКМНОРСТХІЈЅοαΑΒΕΗΙΚΜΝΟΡΤΧΥ",
                            "aeopcyxijsdgABEKMHOPCTXIJSoaABEHIKMNOPTXY")
@@ -91,9 +99,26 @@ def prepare(raw):
     if "&" in raw:
         raw = html.unescape(html.unescape(raw))   # manche Seiten kodieren zweimal (&amp;#39;)
     body = [l for l in raw.split("\n") if l.strip()]
-    if body and sum(1 for l in body if BARE_NO.match(l)) >= 0.6 * len(body):
+    nums = [int(m.group(0)) for l in body for m in [re.match(r"\s*(\d{1,3})(?!\S)", l)] if m]
+    rising = len(nums) >= 3 and sum(1 for x, y in zip(nums, nums[1:]) if y > x) >= 0.8 * (len(nums) - 1)
+    if body and rising and sum(1 for l in body if BARE_NO.match(l)) >= 0.6 * len(body):
         raw = "\n".join(BARE_NO.sub("", l) if l.strip() else l for l in raw.split("\n"))
     return raw
+
+
+def _mark_speakers(body):
+    """Welche eckigen Marken nennen wirklich einen Sprecher? Nur solche, die mehrfach vorkommen.
+
+    Sonst wird aus „[Door Slams]“ oder „(Ooh)“ eine Figur, und schlimmer: der echte Name davor geht verloren."""
+    seen = {}
+    for line in body:
+        m = MARK.match(line)
+        if not m or line.strip()[:1] != "[" or SECTION_WORD.search(m.group(1)) or ":" in m.group(1):
+            continue
+        name = _who(m.group(1), strict=True)
+        if name:
+            seen[name] = seen.get(name, 0) + 1
+    return {n for n, k in seen.items() if k >= 2}
 
 
 def clean_lines(raw):
@@ -102,28 +127,39 @@ def clean_lines(raw):
     -> [(Zeile, wer sie singt oder spricht oder None)]"""
     lines = []
     who = None
-    for line in prepare(raw).split("\n"):
+    body = prepare(raw).split("\n")
+    speakers = _mark_speakers(body)
+    for line in body:
         line = LRC_TAG.sub("", line)
         if not line.strip():
             continue
         mark = MARK.match(line)
         if mark:
             inside = mark.group(1)
+            square = line.strip()[:1] == "["
             if SECTION_WORD.search(inside):
                 # „[Verse 2: Natalia]“ nennt den Namen hinter dem Doppelpunkt, „[Bridge]“ nennt keinen
                 who = _who(inside.split(":", 1)[1]) if ":" in inside else None
-            else:
-                who = _who(inside.split(":", 1)[0], strict=True)   # „[TELEMACHUS]“ ist selbst der Name
+            elif square and ":" in inside:
+                who = _who(inside.split(":", 1)[0], strict=True) or who
+            elif square:
+                name = _who(inside, strict=True)   # „[TELEMACHUS]“ ist selbst der Name
+                if name in speakers:
+                    who = name
+            # runde Klammern („(Ooh)“, „(2x)“) sind Beiwerk: Zeile weg, Sprecher bleibt
             continue
         if ONLY_NOTE.match(line):
             continue
         line = LIST_NO.sub("", line)
         spk = SPEAKER.match(line)
-        here = (_who(spk.group(1)) or who) if spk and any(c.isalpha() for c in spk.group(1)) else who
+        # „Und dann sagte er: Komm her“ ist kein Sprechername: höchstens drei Wörter, und ein Name muss es sein
+        name = _who(spk.group(1), strict=True) if spk and len(spk.group(1).split()) <= 3 else None
+        here = name or who
+        if name:
+            line = line[spk.end():]
         line = BRACKETS.sub(" ", line)
-        line = NOTE.sub(" ", line)
+        line = _drop_notes(line)
         line = line.replace("(", " ").replace(")", " ")
-        line = SPEAKER.sub("", line)
         line = " ".join(_fold(w) for w in line.split())
         line = re.sub(r"\s+", " ", line).strip().strip('"“”„«» ')
         if line and any(ch.isalnum() for ch in line):
@@ -158,14 +194,23 @@ def _spread(ref_toks, s, e, seg, p=0.95, spk=None):
     return out
 
 
-def _voiced(env, a, b, fps=100):
+def _voice_threshold(env):
+    """Ab wann gilt die Stimmen-Spur als „da“. Einmal je Lauf, nicht je Einfügung: das Sortieren der
+    ganzen Hüllkurve kostete bei langen Videos Sekunden pro Aufruf."""
+    if env is None or not len(env):
+        return None
+    arr = np.asarray(env)
+    k = min(len(arr) - 1, int(len(arr) * 0.99))
+    return max(float(np.partition(arr, k)[k]) - 30.0, -55.0)
+
+
+def _voiced(env, a, b, thr, fps=100):
     """Anteil der Zeit in [a, b] mit Stimme in der Stimmen-Spur (Hüllkurve in dB, 100 je Sekunde)."""
-    if env is None or b <= a:
+    if env is None or thr is None or b <= a:
         return 1.0
     seg = env[int(a * fps):max(int(a * fps) + 1, int(b * fps))]
     if not len(seg):
         return 0.0
-    thr = max(float(sorted(env)[int(len(env) * 0.99)]) - 30.0, -55.0)
     return float((seg > thr).mean())
 
 
@@ -180,12 +225,13 @@ def apply(words, raw_text, env=None):
     if not ref or not speech:
         return words, report
     wn, rn = [_norm(w["w"]) for w in speech], [t[1] for t in ref]
+    thr = _voice_threshold(env)
     ops = SequenceMatcher(None, wn, rn, autojunk=False).get_opcodes()
     matched = sum(i2 - i1 for tag, i1, i2, _, _ in ops if tag == "equal")
     report["matched"] = matched
     report["share"] = round(matched / max(1, len(speech)), 3)        # so viel des Gehörten stand im Text
     report["share_ref"] = round(matched / max(1, len(ref)), 3)       # so viel des Texts kam im Video vor
-    if matched < MIN_MATCH * len(speech) and matched < MIN_OF_REF * len(ref):
+    if matched < MIN_MATCH * len(speech) and not (len(ref) >= 30 and matched >= MIN_OF_REF * len(ref)):
         report["reason"] = "Der Text passt nicht zu dem, was im Video gesprochen wird."
         return words, report
     eq = [k for k, op in enumerate(ops) if op[0] == "equal"]
@@ -215,7 +261,7 @@ def apply(words, raw_text, env=None):
         elif tag == "insert" and not edge:
             prev_e = out[-1]["e"] if out else 0.0
             nxt = speech[i1]["s"] if i1 < len(speech) else prev_e
-            if nxt - prev_e >= MIN_WORD_GAP * len(R) and _voiced(env, prev_e, nxt) >= MIN_VOICED:
+            if nxt - prev_e >= MIN_WORD_GAP * len(R) and _voiced(env, prev_e, nxt, thr) >= MIN_VOICED:
                 pad = min(0.05, (nxt - prev_e) * 0.1)
                 out += _spread(R, prev_e + pad, nxt - pad, out[-1].get("seg") if out else None, p=0.6,
                                spk=out[-1].get("spk") if out else None)

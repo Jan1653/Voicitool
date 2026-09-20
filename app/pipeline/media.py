@@ -255,7 +255,7 @@ def pick_frame(src, start, end, dst, size, fps, width=640):
     from PIL import Image
     t0 = start + min(0.3, max(0.0, end - start) / 2)
     w, h = int(size[0] or 0), int(size[1] or 0)
-    fps = float(fps or 0)
+    fps = min(float(fps or 0), 120.0)   # unsinnige Angaben im Container würden das Fenster aufblähen
     if w < 2 or h < 2 or fps <= 0:
         return grab_frame(src, t0, dst, width)
     ow = int(width)

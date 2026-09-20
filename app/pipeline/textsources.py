@@ -68,12 +68,15 @@ def subs_to_text(raw):
             if x and (not out or out[-1] != x):
                 out.append(x)
 
-    for line in raw.replace("\r", "").split("\n"):
+    rows = raw.replace("\r", "").split("\n")
+    for i, line in enumerate(rows):
         s = line.strip()
         if not s or TIME_LINE.search(s):
             flush()
             continue
-        if s.isdigit() or s.startswith(("WEBVTT", "NOTE", "Kind:", "Language:", "STYLE")):
+        # „1999“ als Untertiteltext darf nicht verschwinden: eine Cue-Nummer steht direkt vor der Zeitzeile
+        nxt = rows[i + 1].strip() if i + 1 < len(rows) else ""
+        if (s.isdigit() and TIME_LINE.search(nxt)) or s.startswith(("WEBVTT", "NOTE", "Kind:", "Language:", "STYLE")):
             continue
         if s.startswith("Dialogue:"):          # ASS: Text steht nach dem 9. Komma, jede Zeile eine Einblendung
             s = s.split(",", 9)[-1]
@@ -259,6 +262,10 @@ def genius(query):
     return out[:8]
 
 
+_TAG_ATTR = '(?:[^>"\']|"[^"]*"|\'[^\']*\')*'
+LYRIC_DIV = '<div' + _TAG_ATTR + 'data-lyrics-container="true"' + _TAG_ATTR + '>'
+
+
 def _div_blocks(s, start_re):
     """Inhalt aller <div …>-Blöcke, die auf start_re passen, samt verschachtelter divs."""
     out = []
@@ -278,7 +285,7 @@ def fetch_genius(url):
         raise ValueError("Ungültige Adresse")
     page = _get(url, timeout=20)
     parts = []
-    for inner in _div_blocks(page, r'<div[^>]*data-lyrics-container="true"[^>]*>'):
+    for inner in _div_blocks(page, LYRIC_DIV):
         for junk in _div_blocks(inner, r'<div[^>]*data-exclude-from-selection="true"[^>]*>'):
             inner = inner.replace(junk, "")   # Kopfzeile mit Mitwirkenden und Übersetzungen
         inner = re.sub(r"<br\s*/?>", "\n", inner)

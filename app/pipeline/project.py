@@ -580,8 +580,10 @@ def _names_from_text(data, words):
         top = Counter(names).most_common(1)[0][0]
         for cid in ln["chars"]:
             per.setdefault(cid, []).append(top)
-    taken, n = set(), 0
-    for cid, names in per.items():
+    taken = {c["name"].casefold() for c in data["characters"]}
+    n = 0
+    # den besten Kandidaten zuerst: sonst schnappt eine Figur mit zwei Belegen den Namen weg
+    for cid, names in sorted(per.items(), key=lambda kv: -Counter(kv[1]).most_common(1)[0][1]):
         top, cnt = Counter(names).most_common(1)[0]
         # nur bei klarer Mehrheit, und jeder Name nur einmal: sonst heißen zwei Figuren gleich
         if len(names) >= 2 and cnt >= 0.6 * len(names) and top.casefold() not in taken:

@@ -298,10 +298,10 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
         report("Clips schneiden", 0, "Lautstärke angleichen")
         clips = _match_loudness(clips, sr)
     elif opts["normalize"] == "clip":
-        clips = [c / (np.abs(c).max() + 1e-9) * PEAK if np.abs(c).max() > 1e-4 else c for c in clips]
+        clips = [c / (np.abs(c).max() + 1e-9) * PEAK if len(c) and np.abs(c).max() > 1e-4 else c for c in clips]
     elif opts["normalize"] == "gemeinsam":
-        peak = max((np.abs(c).max() for c in clips), default=1.0)
-        clips = [c / (peak + 1e-9) * PEAK for c in clips]
+        peak = max((np.abs(c).max() for c in clips if len(c)), default=1.0)
+        clips = [c / (peak + 1e-9) * PEAK if len(c) else c for c in clips]
 
     # 3) Clips, Bilder, INIs
     width = len(str(len(lines))) if len(lines) >= 1000 else 3

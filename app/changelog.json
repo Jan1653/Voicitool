@@ -1,5 +1,19 @@
 [
   {
+    "build": 34,
+    "date": "2026-09-20",
+    "changes": [
+      "Provided lyrics: background lines like (Ooh) or notes like [Door Slams] no longer become a character name and no longer swallow the real singer name. A name in square brackets only counts when it shows up more than once.",
+      "A colon inside a sentence no longer cuts off the start of a line. \"Und dann sagte er: Komm her\" stays complete, \"PETER:\" is still recognized.",
+      "A very short provided text is not accepted any more just because a few of its words appear in the video.",
+      "A subtitle line that is only a number, like a year, is kept as text.",
+      "Matching a provided text is much faster on long videos. It used to sort the whole voice envelope again for every inserted word, which cost seconds per word on a one hour video.",
+      "Text with unclosed brackets no longer makes the step hang.",
+      "Naming characters from the text now gives the name to the character with the most evidence.",
+      "Export no longer stops when a line sits past the end of the audio."
+    ]
+  },
+  {
     "build": 33,
     "date": "2026-09-20",
     "changes": [
