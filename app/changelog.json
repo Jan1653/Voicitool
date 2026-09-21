@@ -1,5 +1,13 @@
 [
   {
+    "build": 39,
+    "date": "2026-09-21",
+    "changes": [
+      "Dragging the shared edge of two lines works in both directions again. Before, it only moved one way.",
+      "Splitting a line cuts exactly where you chose. Before, the cut jumped to the nearest gap between recognized words, sometimes a second away."
+    ]
+  },
+  {
     "build": 38,
     "date": "2026-09-21",
     "changes": [

@@ -3064,10 +3064,11 @@ const NEIGHBOUR_GAP = 0.12;  // bis hierhin gelten zwei Zeilen als „aneinander
 const r3 = v => +(+v).toFixed(3);
 
 /** Freier Bereich um Zeitpunkt t für die Sprecher `chars` (ohne Zeile excludeId). null = t liegt in einer Zeile. */
-function freeGap(chars, t, excludeId) {
+function freeGap(chars, t, exclude) {   // exclude: eine Zeilen-ID oder ein Set von IDs
+  const skip = exclude instanceof Set ? exclude : new Set([exclude]);
   let lo = 0, hi = S.p.duration;
   for (const o of S.p.lines) {
-    if (o.id === excludeId || !o.chars.some(c => chars.includes(c))) continue;
+    if (skip.has(o.id) || !o.chars.some(c => chars.includes(c))) continue;
     if (o.end <= t) lo = Math.max(lo, o.end + GAP);
     else if (o.start >= t) hi = Math.min(hi, o.start - GAP);
     else return null;
@@ -3290,10 +3291,10 @@ async function deleteLine(l, ask = true) {
   if (next) selectLine(next.id, { scroll: false });
 }
 
-/* Zeile teilen: Wörter des Textes auf die erkannten Wörter abbilden, dann in der Lücke zwischen zwei Wörtern
-   schneiden. Früher wurde nur nach Anteilen geteilt („60 % der Zeit, also 60 % der Wörter“); stand im Text etwas
-   anderes als erkannt (nachbearbeitet, Lacher, zweiter Sprecher im selben Zeitraum), rutschte ein Wort auf die
-   falsche Seite, und der Schnitt lag mitten im Wort. */
+/* Zeile teilen: geschnitten wird genau an der gewählten Stelle. Welcher Text in welche Hälfte kommt, entscheiden
+   die erkannten Wörter (Wörter des Textes auf die erkannten abgebildet, Wortmitte vor oder nach dem Schnitt).
+   Nur nach Anteilen („60 % der Zeit, also 60 % der Wörter“) rutschte sonst ein Wort auf die falsche Seite, wenn im
+   Text etwas anderes stand als erkannt (nachbearbeitet, Lacher, zweiter Sprecher im selben Zeitraum). */
 const wordKey = s => (s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 
 /** Längste gemeinsame Folge zweier Wortlisten -> Paare [Text-Wort, erkanntes Wort] in Reihenfolge. */
@@ -3340,21 +3341,13 @@ function lineWordTimes(l) {
 function splitLine(l, t) {
   if (l.end - l.start < 2 * MIN_LEN + 0.02) return toast('Diese Zeile ist zu kurz zum Teilen.', true);
   if (t <= l.start + 0.1 || t >= l.end - 0.1) return toast('Zum Teilen die Stelle innerhalb der Zeile wählen.', true);
-  t = clamp(t, l.start + MIN_LEN, l.end - MIN_LEN);   // beide Hälften bleiben lang genug fürs Spiel
+  t = clamp(t, l.start + MIN_LEN + GAP / 2, l.end - MIN_LEN - GAP / 2);   // beide Hälften bleiben lang genug fürs Spiel
   snapshot();
   const tokens = l.text.split(/\s+/).filter(Boolean);
   const times = lineWordTimes(l);
-  let cut, e1 = t, s2 = t;
-  if (times) {
-    cut = clamp(times.filter(w => (w.s + w.e) / 2 < t).length, 1, tokens.length - 1);
-    const prev = times[cut - 1], next = times[cut];
-    const mid = clamp((prev.e + next.s) / 2, prev.e, Math.max(prev.e, next.s));   // Lücke zwischen den Wörtern
-    e1 = Math.min(mid, prev.e + 0.05);
-    s2 = Math.max(mid, next.s - 0.05);
-    if (e1 - l.start < MIN_LEN || l.end - s2 < MIN_LEN || s2 < e1) { e1 = s2 = t; }
-  } else {
-    cut = clamp(Math.round(tokens.length * (t - l.start) / (l.end - l.start)), 1, Math.max(1, tokens.length - 1));
-  }
+  const cut = times ? clamp(times.filter(w => (w.s + w.e) / 2 < t).length, 1, tokens.length - 1)
+    : clamp(Math.round(tokens.length * (t - l.start) / (l.end - l.start)), 1, Math.max(1, tokens.length - 1));
+  const e1 = t - GAP / 2, s2 = t + GAP / 2;   // die übliche kleine Lücke zwischen zwei Zeilen, mittig um den Schnitt
   const second = { id: newId(), start: r3(s2), end: l.end, text: tokens.slice(cut).join(' '), chars: [...l.chars] };
   if (l.laugh) second.laugh = l.laugh;
   if (l.repeat_of) second.repeat_of = l.repeat_of;   // geteilte Wiederholung bleibt eine Wiederholung
@@ -4768,8 +4761,6 @@ cv.addEventListener('mousedown', e => {
     const groupOrig = group.map(o => ({ o, start: o.start, end: o.end }));
     const groupIds = new Set([l.id, ...group.map(o => o.id)]);
     if (!groupOrig.length) selectLine(l.id, { reveal: false });
-    // Freier Bereich um die Zeile (für Ränder)
-    const gap = freeGap(l.chars, (l.start + l.end) / 2, l.id) || { lo: 0, hi: S.p.duration };
     // Grenzt direkt eine Zeile desselben Sprechers an? Dann wandert die gemeinsame Kante:
     // eine Zeile wird größer, die andere genauso viel kleiner.
     let buddy = null, buddyOrig = null;
@@ -4781,6 +4772,11 @@ cv.addEventListener('mousedown', e => {
         .sort((p, q) => near(p) - near(q))[0] || null;
       if (buddy) buddyOrig = { start: buddy.start, end: buddy.end };
     }
+    // Freier Bereich um die Zeile (für Ränder). Der Nachbar an der gemeinsamen Kante ist dabei kein Hindernis
+    // (sonst ginge die Kante nur in eine Richtung), dafür darf auch er beim Größerwerden nirgends anstoßen.
+    const skip = new Set([l.id, buddy?.id].filter(Boolean));
+    const gap = freeGap(l.chars, (l.start + l.end) / 2, skip) || { lo: 0, hi: S.p.duration };
+    const bgap = buddy ? freeGap(buddy.chars, (buddy.start + buddy.end) / 2, skip) || { lo: 0, hi: S.p.duration } : null;
     S.drag = {
       kind: h.kind, line: l, moved: false, invalid: false, targetLane: null,
       move: ev => {
@@ -4791,12 +4787,14 @@ cv.addEventListener('mousedown', e => {
         const dt = x2t(ev.offsetX) - tDown;
         if (h.kind === 'start') {
           const lo = buddy ? Math.max(gap.lo, buddyOrig.start + MIN_LEN + GAP) : gap.lo;
-          l.start = r3(clamp(snapTime(orig.start + dt, l.id, buddy?.id), lo, l.end - MIN_LEN));
+          const hi = buddy ? Math.min(l.end - MIN_LEN, bgap.hi + GAP) : l.end - MIN_LEN;
+          l.start = r3(clamp(snapTime(orig.start + dt, l.id, buddy?.id), lo, hi));
           if (buddy) buddy.end = r3(l.start - GAP);   // Nachbar wird genau um dasselbe kürzer/länger
           seek(l.start);
         } else if (h.kind === 'end') {
           const hi = buddy ? Math.min(gap.hi, buddyOrig.end - MIN_LEN - GAP) : gap.hi;
-          l.end = r3(clamp(snapTime(orig.end + dt, l.id, buddy?.id), l.start + MIN_LEN, hi));
+          const lo = buddy ? Math.max(l.start + MIN_LEN, bgap.lo - GAP) : l.start + MIN_LEN;
+          l.end = r3(clamp(snapTime(orig.end + dt, l.id, buddy?.id), lo, hi));
           if (buddy) buddy.start = r3(l.end + GAP);
           seek(l.end);
         } else if (groupOrig.length) {
@@ -4854,7 +4852,7 @@ cv.addEventListener('mousedown', e => {
           return;
         }
         S.undo.push(snap); if (S.undo.length > 200) S.undo.shift(); S.redo = [];
-        if (groupOrig.length) {
+        if (groupOrig.length && h.kind === 'move') {
           afterChange(null);
           toast(tf('{} Zeilen verschoben.', groupOrig.length + 1));
           return;
