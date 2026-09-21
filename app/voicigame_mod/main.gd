@@ -11,12 +11,16 @@ extends Node
 ##   Gameshow               show_hook.gd legt die Handy-Aufnahmen in die Aufnahme des Spiels
 ##   Synchronisieren        dub_hook.gd: Pack im Spiel wählen, Web-Spieler sprechen ihre Figuren im Browser
 
-const VERSION := "0.2.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
+const VERSION := "0.3.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
 const CONFIG_PATH := "user://voicigame.cfg"
 const MEMBER_SCENE := "res://scenes/nav_specific/play_flow/select_member_count.tscn"
 const DUB_SELECT_SCENE := "res://scenes/nav_specific/clip_selector_menus/clip_selection_dub.tscn"
 const DUB_SCENE := "res://scenes/gameplay/dub_mode/main/dub_mode.tscn"
 const GROUP_MODE_SCENE := "res://scenes/nav_specific/play_flow/select_game_mode_group.tscn"
+## Wer im Spielmenü Solo, Gruppe oder Multiplayer wählt, spielt danach nicht mehr in der Voicigame-Runde
+const OTHER_PLAY_SCENES := ["res://scenes/nav_specific/play_flow/select_game_mode_solo.tscn",
+	"res://scenes/nav_specific/play_flow/select_members.tscn",
+	"res://scenes/nav_specific/multiplayer/multiplayer_lobby_screen.tscn"]
 const MAX_PLAYERS := 4
 
 const Bridge = preload("bridge.gd")
@@ -79,9 +83,10 @@ func _notification(what: int) -> void:
 
 func _on_node_added(node: Node) -> void:
 	if node.scene_file_path == MEMBER_SCENE:
-		# Zurück im Spielmenü: ein späteres Solo-Dub gehört nicht mehr zur Voicigame-Runde
-		_dub_active = false
+		# Nicht hier zurücksetzen: das Spiel lädt dieses Menü auch zwischendurch (etwa zwischen zwei Dub-Runden)
 		node.ready.connect(_add_tile.bind(node), CONNECT_ONE_SHOT)
+	elif node.scene_file_path in OTHER_PLAY_SCENES:
+		_dub_active = false   # ein späteres Solo-Dub gehört nicht mehr zur Voicigame-Runde
 	elif node.scene_file_path == DUB_SCENE and _dub_active and bridge.has_room():
 		node.ready.connect(_attach_dub.bind(node), CONNECT_ONE_SHOT)
 	elif bridge.has_room() and node.has_method("GENERIC_RF_RecordContestants") and not _web_slots().is_empty():
@@ -102,6 +107,7 @@ func _add_tile(menu: Node) -> void:
 		return
 	var tile: Node = template.duplicate(Node.DUPLICATE_GROUPS | Node.DUPLICATE_SCRIPTS | Node.DUPLICATE_USE_INSTANTIATION)
 	tile.name = "VoicigameTile"
+	_own_materials(tile)
 	row.add_child(tile)
 	tile.visible = true
 	var button: Node = tile.get_child(0)
@@ -112,11 +118,22 @@ func _add_tile(menu: Node) -> void:
 		labels[1].text = _same_layout(labels[1].text, I18n.t("Handy & Browser"))
 	if OS.get_environment("VOICIGAME_TEST") != "":
 		print("Voicigame | Kachel-Vorlage: %s" % [labels.map(func(l): return l.text.c_escape())])
+		var own: bool = button.material == null or button.material != template.get_child(0).material
+		print("Voicigame | Kachel mit eigenem Material: %s" % own)
 	if button.has_signal("button_clicked"):
 		for con in button.get_signal_connection_list("button_clicked"):
 			button.disconnect("button_clicked", con.callable)
 		button.button_clicked.connect(_open_lobby.bind(menu))
 	_fit_row.call_deferred(row)
+
+
+## Jede Kachel des Spiels leuchtet über ein Shader-Material auf, das sich alle Kopien teilen. Ohne eigene Kopie
+## leuchtet die Voicigame-Kachel mit, wenn man über die Vorlage fährt (und umgekehrt).
+static func _own_materials(node: Node) -> void:
+	if node is CanvasItem and node.material:
+		node.material = node.material.duplicate()
+	for c in node.get_children():
+		_own_materials(c)
 
 
 ## Neuer Text mit den Leerzeichen und Zeilenumbrüchen des alten davor und danach

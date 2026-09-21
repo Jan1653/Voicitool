@@ -125,11 +125,26 @@ def sync_copy():
     return changed
 
 
+def write_export_cfg():
+    """voicitool.cfg neben den Mod: dorthin legt der Mod exportierte Dub-Videos zusätzlich zu Videos\\Voicigame.
+    Godot-ConfigFile, Pfad mit / (Windows-Pfade enthalten keine Anführungszeichen)."""
+    if not MOD_DIR.is_dir():
+        return
+    text = '[export]\n\ndir="%s"\n' % config.EXPORT_VIDEOS.as_posix()
+    p = MOD_DIR / "voicitool.cfg"
+    try:
+        if not p.is_file() or p.read_text(encoding="utf-8") != text:
+            p.write_text(text, encoding="utf-8")
+    except OSError:
+        pass   # Videos landen dann nur unter Videos/Voicigame
+
+
 def startup_sync():
     """Beim Start (also auch nach jedem Voicitool-Update): ist der Mod installiert, still nachziehen."""
     if not installed_copy() or not (BUNDLED / "main.gd").is_file():
         return 0
     with _lock:
+        write_export_cfg()
         return 0 if up_to_date() else sync_copy()
 
 
@@ -554,6 +569,7 @@ def install(folder=None):
         if not game_exe(folder):
             raise VoicigameError(f"In diesem Ordner liegt keine Spiel-exe: {folder}")
         sync_copy()
+        write_export_cfg()
         text, data = _read_cfg(folder)
         new = cfg_with_entry(text, MOD_DIR / "main.gd")
         if data is None or new != text:

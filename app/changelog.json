@@ -1,5 +1,14 @@
 [
   {
+    "build": 40,
+    "date": "2026-09-21",
+    "changes": [
+      "Voicigame 0.3.0: the PC leads dub rooms, the second dub round stays connected, the mod language can be changed in the Voicigame menu.",
+      "Exported Voicigame videos are also saved in the Voicitool export folder, next to Videos\\Voicigame.",
+      "When you pick the game yourself, the settings tell you to choose the exe with \"compatibility\" in its name."
+    ]
+  },
+  {
     "build": 39,
     "date": "2026-09-21",
     "changes": [

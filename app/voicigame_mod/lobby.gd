@@ -69,6 +69,31 @@ func _show_choice() -> void:
 	box.add_child(UI.button(tr_("Lobby erstellen"), _show_host, 420))
 	box.add_child(UI.button(tr_("Lobby beitreten"), _on_join, 420))
 	box.add_child(UI.button(tr_("Zurück"), _on_back, 420))
+	box.add_child(_language_row())
+
+
+## Sprache des Mods: wie Windows oder fest gewählt. Wirkt sofort.
+func _language_row() -> Control:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 12)
+	row.add_child(UI.label(tr_("Sprache"), 18, false, UI.MUTED))
+	var pick := OptionButton.new()
+	pick.add_theme_font_size_override("font_size", 18)
+	pick.get_popup().add_theme_font_size_override("font_size", 18)
+	pick.add_item(tr_("Automatisch (Windows)"))
+	pick.set_item_metadata(0, "")
+	var cur := I18n.chosen()
+	for code in I18n.available():
+		pick.add_item(str(I18n.LANG_NAMES.get(code, code)))
+		pick.set_item_metadata(pick.item_count - 1, code)
+		if code == cur:
+			pick.select(pick.item_count - 1)
+	pick.item_selected.connect(func(i):
+		I18n.choose(str(pick.get_item_metadata(i)))
+		_show_choice.call_deferred())
+	row.add_child(pick)
+	return row
 
 
 func _on_join() -> void:

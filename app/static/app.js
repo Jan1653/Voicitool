@@ -1651,7 +1651,7 @@ async function renderVoicigame() {
   const ready = s.bundled && s.game_dir && s.exe;
   let state = tf('Nicht installiert.'), extra = '';
   if (!s.bundled) state = tf('Die Mod-Dateien fehlen in Voicitool. Bitte unter Über Voicitool die Installation prüfen.');
-  else if (!ready) state = tf('Spiel nicht gefunden. Wähle den Ordner mit The Choicer Voicer.exe.');
+  else if (!ready) state = tf('Spiel nicht gefunden. Wähle die exe mit „compatibility“ im Namen.');
   else if (s.installed) {
     state = tf('Installiert, Version {}.', s.installed_version || s.version || '?');
     if (!s.up_to_date) extra = tf('Ein Update liegt bereit.');
@@ -1708,7 +1708,7 @@ $('#vgPick').onclick = async () => {
   if (pick) {
     try { path = await pick(cur); } catch (e) { toast(e.message, true); return; }
   } else {   // im Browser: Pfad eintippen oder einfügen
-    path = await dialog({ title: 'Spielordner', text: 'Pfad zum Ordner mit The Choicer Voicer.exe oder zur exe selbst.',
+    path = await dialog({ title: 'Spielordner', text: 'Pfad zum Spielordner oder zur exe mit „compatibility“ im Namen.',
                           input: cur, placeholder: 'C:\\…\\The Choicer Voicer', maxLength: 500, icon: 'folder' });
   }
   if (path) setVoicigameDir(path);

@@ -77,6 +77,7 @@ var _blocked_game := false       # Knöpfe des Spiels sind vom Mod gesperrt
 var _ready_since := 0            # seit wann die PC-Zeile bereit ist (ms, nur Tests)
 var _mic_volume = null           # Lautstärke des Spiel-Mikrofons während einer Einspielung
 var _inj_player: AudioStreamPlayer   # spielt die Handy-Aufnahme in den Kanal des Mikrofons
+var _static_vol = null           # Lautstärke des Rausch-Videos, solange die Lobby darüber liegt
 var _inject_start := Callable()
 var _skip_sent := ""             # für diese Zeile wurde schon „überspringen“ geschickt
 var _done_sent := false
@@ -173,6 +174,20 @@ func _default_export_dir() -> String:
 	if OS.get_environment("VOICIGAME_TEST") != "":
 		return ProjectSettings.globalize_path("user://voicigame_test/")
 	return OS.get_system_dir(OS.SYSTEM_DIR_MOVIES).path_join("Voicigame") + "/"
+
+
+## Über Voicitool installiert: Voicitool legt voicitool.cfg neben den Mod. Das Video kommt dann zusätzlich
+## in dessen Export-Ordner (neben Videos\Voicigame).
+func _extra_export_dirs() -> Array:
+	var out: Array = []
+	if OS.get_environment("VOICIGAME_TEST") != "" and OS.get_environment("VOICIGAME_TEST_EXPORT2") != "":
+		out.append(OS.get_environment("VOICIGAME_TEST_EXPORT2"))   # nur Tests
+	var vt := ConfigFile.new()
+	if OS.get_environment("VOICIGAME_TEST") == "" and vt.load(I18n.base_dir.path_join("voicitool.cfg")) == OK:
+		var dir := str(vt.get_value("export", "dir", "")).strip_edges()
+		if dir != "":
+			out.append(dir)
+	return out.map(func(d): return str(d).replace("\\", "/").trim_suffix("/") + "/")
 
 
 func _dub() -> Dictionary:
@@ -550,6 +565,7 @@ func _begin() -> void:
 func _process(_delta: float) -> void:
 	if not is_instance_valid(dm) or _leaving:
 		return
+	_quiet_static(is_instance_valid(_hub) and _hub.visible)
 	var d := _dub()
 	var phase := str(d.get("phase", ""))
 	if _waiting_hub:
@@ -796,6 +812,20 @@ func _run_inject(stream: AudioStream, then_next: bool) -> void:
 	_busy = false
 
 
+## Die Dub-Szene spielt im Leerlauf ein Rausch-Video mit Ton. Unter der Lobby (Pack hochladen, warten) stört das:
+## solange die Lobby offen ist, stumm. Zwischen den Zeilen einer Runde bleibt es, wie im Spiel.
+func _quiet_static(on: bool) -> void:
+	var v = dm.get("video_player_static")
+	if not v is VideoStreamPlayer:
+		return
+	if on and _static_vol == null:
+		_static_vol = v.volume_db
+		v.volume_db = -80.0
+	elif not on and _static_vol != null:
+		v.volume_db = _static_vol
+		_static_vol = null
+
+
 ## Mikrofon des Spiels wieder hörbar machen (nach einer Einspielung, auch wenn die Szene mittendrin verlassen wird).
 func _restore_mic() -> void:
 	if is_instance_valid(_inj_player):
@@ -996,6 +1026,16 @@ func _on_export_loaded(result: int, code: int, _h: PackedStringArray, _b: Packed
 	_trash_part()
 	if _export_state == "done":
 		print("Voicigame | Video gespeichert: %s" % _export_file)
+		for dir in _extra_export_dirs():
+			var copy: String = dir + _export_file.get_file()
+			if DirAccess.make_dir_recursive_absolute(dir) != OK or copy == _export_file:
+				continue
+			if FileAccess.file_exists(copy):
+				OS.move_to_trash(ProjectSettings.globalize_path(copy))
+			if DirAccess.copy_absolute(_export_file, copy) == OK:
+				print("Voicigame | Video auch gespeichert: %s" % copy)
+			else:
+				push_warning("Voicigame: Video nicht nach %s kopiert" % dir)
 	_export_http.queue_free()
 	_refresh()
 
