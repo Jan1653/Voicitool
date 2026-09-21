@@ -174,6 +174,18 @@ def game_packs_dir():
     custom = (user_settings().get("game_dir") or "").strip()
     return Path(custom) if custom else GAME_PACKS_DIR
 
+
+# Spiel-Mod voicigame (Mitspielen am Handy und im Browser, siehe app/voicigame.py) installieren.
+# An, seit der Server voicigame.duckdns.org läuft. Auf False gesetzt sieht niemand etwas davon
+# (außer "voicigame": true in daten/einstellungen.json oder VOICITOOL_VOICIGAME=1).
+VOICIGAME = True
+
+
+def voicigame_enabled():
+    if VOICIGAME or os.environ.get("VOICITOOL_VOICIGAME") == "1":
+        return True
+    return user_settings().get("voicigame") is True
+
 # Stimmen-Trennung (BS-RoFormer, sehr gute Trennung Stimme/Rest)
 SEPARATOR_MODEL = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
 

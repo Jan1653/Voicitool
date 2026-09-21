@@ -70,6 +70,7 @@
       <button data-sec="storage"><span class="ico"><i data-ic="database"></i></span><span>Speicher</span></button>
       <button data-sec="system"><span class="ico"><i data-ic="monitor"></i></span><span>System</span></button>
       <button data-sec="online"><span class="ico"><i data-ic="cloud"></i></span><span>Online rechnen</span></button>
+      <button data-sec="voicigame" hidden><span class="ico"><i data-ic="gamepad"></i></span><span>Voicigame</span></button>
       <button data-sec="updates"><span class="ico"><i data-ic="refresh"></i></span><span>Updates</span></button>
       <button data-sec="keys"><span class="ico"><i data-ic="keyboard"></i></span><span>Tastenkürzel</span></button>
       <button data-sec="about"><span class="ico"><i data-ic="info"></i></span><span>Über Voicitool</span></button>
@@ -259,6 +260,29 @@
           <div id="onlineBox" class="online-box"><div class="loadbar"></div></div>
         </section>
 
+        <!-- Spiel-Mod voicigame: nur sichtbar, wenn eingeschaltet (config.VOICIGAME) oder schon installiert -->
+        <section data-sec="voicigame" hidden>
+          <p class="set-note">Voicigame ist ein Mod für The Choicer Voicer: Freunde spielen per Raumcode am Handy oder im Browser mit. Die Spieldateien bleiben unverändert.</p>
+          <div class="set-row">
+            <div><div class="set-label">Status</div><div class="set-hint" id="vgState"></div><div class="set-hint" id="vgState2" hidden></div></div>
+            <div class="row-btns">
+              <button class="btn small primary" id="vgInstall">Mod installieren</button>
+              <button class="btn small" id="vgUpdate" hidden>Aktualisieren</button>
+              <button class="btn small danger" id="vgRemove" hidden>Entfernen</button>
+            </div>
+          </div>
+          <div class="set-row column">
+            <div><div class="set-label">Spielordner</div><div class="set-hint"><span>Der Ordner mit The Choicer Voicer.exe.</span> <span id="vgFound" hidden>Automatisch gefunden.</span></div></div>
+            <div class="url-row full">
+              <input id="vgGameDir" spellcheck="false" data-nolang>
+              <button class="btn small" id="vgPick">Ändern …</button>
+              <button class="btn small" id="vgOpen">Öffnen</button>
+            </div>
+            <div class="row-btns vg-others" id="vgOthers" hidden><span class="set-hint">Auch gefunden:</span><span id="vgOtherList" class="row-btns" data-nolang></span></div>
+          </div>
+          <p class="set-note">Wirkt ab dem nächsten Spielstart. Nach Voicitool-Updates wird der Mod automatisch mit aktualisiert.</p>
+        </section>
+
         <section data-sec="updates" hidden>
           <div class="set-row">
             <div><div class="set-label">Beim Start nach Updates suchen</div><div class="set-hint">Voicitool.exe lädt neue Versionen von GitHub und prüft danach die Installation.</div></div>
@@ -348,6 +372,7 @@
     <div class="row-btns">
       <button class="btn" id="btnImportPack" title="Ein Pack aus Choicer Voicer als Projekt übernehmen: Zeilen, Sprecher und Zeiten kommen mit"><i data-ic="package"></i><span>Pack bearbeiten</span></button>
       <button class="btn" id="btnSessionVideo" title="Eine Aufnahme-Sitzung aus dem Spiel über das Video legen und als Videodatei speichern"><i data-ic="clapper"></i><span>Aufnahme als Video</span></button>
+      <button class="btn" id="btnVoicigame" hidden title="Freunde spielen per Raumcode am Handy oder im Browser mit."><i data-ic="gamepad"></i><span>Voicigame</span></button>
     </div>
   </section>
 

@@ -280,6 +280,15 @@ class Bridge:
         self._taskbar.set(None if frac is None else float(frac))
         return True
 
+    def pick_game_exe(self, directory=""):
+        """Windows-Dialog „Datei öffnen“ für die Spiel-exe (voicigame). Ergebnis: Pfad oder None."""
+        win = webview.windows[0] if webview.windows else None
+        if win is None:
+            return None
+        res = win.create_file_dialog(webview.FileDialog.OPEN, directory=str(directory or ""),
+                                     file_types=("The Choicer Voicer (*.exe)", "All files (*.*)"))
+        return str(res[0]) if res else None
+
 
 def ui_query():
     """Sprache für die Oberfläche: lang = eigene Wahl (falls schon getroffen), sys = Windows-Sprache."""

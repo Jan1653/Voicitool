@@ -434,6 +434,10 @@ legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
 .set-note { font-size: 12px; color: var(--muted); margin: 10px 0; }
 .row-inline { display: inline-flex; align-items: center; gap: 8px; }
 .url-row.full { width: 100%; }
+.vg-others { align-items: center; gap: 4px 8px; }
+.vg-others .set-hint { margin: 0; }
+.vg-others > .row-btns { min-width: 0; flex: 1 1 260px; }
+.vg-others .btn { max-width: 100%; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .seg button { background: var(--panel2); border: 0; padding: 6px 14px; cursor: pointer; color: var(--text); }
 .seg button + button { border-left: 1px solid var(--line); }

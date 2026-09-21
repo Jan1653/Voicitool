@@ -874,6 +874,15 @@ try {
 
     # 2) Dateien entfernen (Nutzerdaten je nach Wahl behalten)
     $sync.StepIndex = 1; Set-Step 1 'run'
+    # Spiel-Mod voicigame installiert? Erst den eigenen Eintrag aus override.cfg im Spielordner nehmen,
+    # sonst zeigt das Spiel danach auf gelöschte Dateien
+    $vgPy = Join-Path $root '.venv\Scripts\python.exe'; $vgScript = Join-Path $root 'app\voicigame.py'
+    if ((Test-Path -LiteralPath (Join-Path $root 'daten\voicigame\main.gd')) -and (Test-Path -LiteralPath $vgPy) -and (Test-Path -LiteralPath $vgScript)) {
+        try {
+            $vgProc = Start-Process -FilePath $vgPy -ArgumentList "`"$vgScript`" --entfernen" -WorkingDirectory $root -WindowStyle Hidden -PassThru
+            if (-not $vgProc.WaitForExit(20000)) { Stop-Process -Id $vgProc.Id -Force -ErrorAction SilentlyContinue }
+        } catch {}
+    }
     $keep = @()
     if ($sync.KeepProjects) { $keep += @('projekte', 'eingang', 'export') }
     if ($sync.KeepModels) { $keep += 'modelle' }

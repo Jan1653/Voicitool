@@ -46,6 +46,16 @@ def _background_maintenance():
     system.update_shortcuts(config.ui_lang())
 
 
+@app.on_event("startup")
+def _voicigame_sync():
+    """Spiel-Mod voicigame installiert? Dann die Kopie still auf den Stand dieser Version bringen (nach Updates)."""
+    try:
+        from app import voicigame
+        voicigame.startup_sync()
+    except Exception:
+        traceback.print_exc()
+
+
 @app.middleware("http")
 async def no_cache_static(request, call_next):
     # Oberfläche nie aus dem Browser-Cache laden (sonst alte Version nach Updates)
@@ -737,6 +747,62 @@ def game_session_video(body: dict = Body(...)):
     return {"job": jobs.submit("session", "", run, "Aufnahme als Video", lane="cpu")}
 
 
+# ---------------------------------------------------------------- Spiel-Mod voicigame (hinter config.VOICIGAME)
+def _voicigame(fn, *args):
+    from app import voicigame
+    if not voicigame.visible():
+        raise HTTPException(403, "Voicigame ist ausgeschaltet.")
+    try:
+        return fn(voicigame, *args)
+    except voicigame.VoicigameError as e:
+        raise HTTPException(400, str(e))
+    except OSError as e:
+        traceback.print_exc()
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+
+
+@app.get("/api/voicigame")
+def voicigame_status(refresh: bool = False):
+    """Stand des Mods: Spielordner, installiert, Version. Ohne Schalter nur {visible: false} (keine Suche)."""
+    from app import voicigame
+    if not voicigame.visible():
+        return {"visible": False}
+    return _voicigame(lambda vg: vg.status(refresh))
+
+
+@app.post("/api/voicigame/game-dir")
+def voicigame_game_dir(body: dict = Body(...)):
+    """Spielordner merken (Ordner oder die exe darin)."""
+    def run(vg):
+        vg.set_game_dir(body.get("path"))
+        return vg.status()
+    return _voicigame(run)
+
+
+@app.post("/api/voicigame/install")
+def voicigame_install():
+    """Installieren oder aktualisieren: Mod-Kopie erneuern, Eintrag in override.cfg (vorher Sicherung)."""
+    return _voicigame(lambda vg: vg.install())
+
+
+@app.post("/api/voicigame/remove")
+def voicigame_remove():
+    """Eintrag aus override.cfg nehmen, Mod-Kopie in den Papierkorb."""
+    return _voicigame(lambda vg: {"changed": vg.remove(), **vg.status()})
+
+
+@app.post("/api/voicigame/open")
+def voicigame_open():
+    """Spielordner im Explorer öffnen."""
+    def run(vg):
+        folder = vg.game_dir()[0]
+        if not folder or not folder.is_dir():
+            raise vg.VoicigameError("Bitte zuerst den Spielordner wählen.")
+        os.startfile(folder)
+        return {"ok": True}
+    return _voicigame(run)
+
+
 @app.get("/api/models")
 def get_models():
     from app import models
@@ -847,8 +913,9 @@ def online_check(body: dict = Body(...)):
 
 @app.get("/api/settings")
 def get_settings():
+    from app import voicigame
     return {"settings": config.user_settings(), "default_game_dir": str(config.GAME_PACKS_DIR),
-            "stats_site": config.STATS_SITE, "build": config.APP_BUILD}
+            "stats_site": config.STATS_SITE, "build": config.APP_BUILD, "voicigame": voicigame.visible()}
 
 
 @app.put("/api/settings")

@@ -129,6 +129,10 @@ If you have the instrumental version of the song, you can load it under Export �
 
 "Made with Voicitool" is added to the pack credits by default. You can turn it off per project under Export → More options.
 
+## Play with friends online (Voicigame)
+
+[Voicigame](https://github.com/Jan1653/voicigame) is a mod for The Choicer Voicer: friends join your gameshow or dub round with a room code on their phone or in the browser. Install it under **Settings** → **Voicigame** → **Install mod**. Voicitool finds the game folder on its own and brings the newest mod version with every update. The game files stay unchanged, and **Remove** takes it out again.
+
 ## Known limits
 
 - If two voices sound very similar, Voicitool sometimes hears only one speaker. In that case set the number of speakers and use **Reassign speakers automatically**. That usually separates them.

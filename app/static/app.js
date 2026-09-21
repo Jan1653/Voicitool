@@ -1363,6 +1363,7 @@ async function loadSettings() {
     const r = await api('GET', '/api/settings');
     SET = r.settings || {}; defaultGameDir = r.default_game_dir || '';
     statsSite = r.stats_site || ''; appBuild = r.build || 0;
+    showVoicigame(r.voicigame);
   } catch { SET = {}; }
   const design = {};   // Design aus den gespeicherten Einstellungen übernehmen
   for (const k of ['theme', 'accent', 'custom_color', 'reduce_motion', 'ui_scale']) if (SET[k] !== undefined) design[k] = SET[k];
@@ -1428,6 +1429,7 @@ function showSection(sec, first = false) {
   if (sec === 'system') renderSystem();
   if (sec === 'online') renderOnline();
   if (sec === 'look') renderLook();
+  if (sec === 'voicigame') renderVoicigame();
 }
 $('#btnSettings').onclick = () => openSettings();
 $('#setClose').onclick = closeSettings;
@@ -1629,6 +1631,91 @@ $('#setGameDir').addEventListener('change', async e => {
   await saveSetting('game_dir', v === defaultGameDir ? '' : v);
 });
 $('#setGameDirReset').onclick = async () => { await saveSetting('game_dir', ''); $('#setGameDir').value = defaultGameDir; toast(tf('Gespeichert.'), false, 1200); };
+
+/* Spiel-Mod voicigame (Mitspielen am Handy und im Browser): installieren, aktualisieren, entfernen.
+   Nur sichtbar, wenn der Schalter in app/config.py an ist oder der Mod schon installiert ist. */
+function showVoicigame(on) {
+  $('#setNav [data-sec="voicigame"]').hidden = !on;
+  $('#btnVoicigame').hidden = !on;
+  if (!on && settingsSection === 'voicigame') settingsSection = 'look';
+}
+async function renderVoicigame() {
+  let s;
+  try { s = await api('GET', '/api/voicigame', undefined, 30000); }
+  catch (e) {
+    $('#vgState').textContent = e.message;
+    ['#vgInstall', '#vgUpdate', '#vgRemove', '#vgPick'].forEach(q => ($(q).disabled = false));
+    return;
+  }
+  if (!s.visible) { showVoicigame(false); if (!$('#settings').hidden) showSection('look'); return; }
+  const ready = s.bundled && s.game_dir && s.exe;
+  let state = tf('Nicht installiert.'), extra = '';
+  if (!s.bundled) state = tf('Die Mod-Dateien fehlen in Voicitool. Bitte unter Über Voicitool die Installation prüfen.');
+  else if (!ready) state = tf('Spiel nicht gefunden. Wähle den Ordner mit The Choicer Voicer.exe.');
+  else if (s.installed) {
+    state = tf('Installiert, Version {}.', s.installed_version || s.version || '?');
+    if (!s.up_to_date) extra = tf('Ein Update liegt bereit.');
+  } else if (s.missing_files) state = tf('Die Mod-Dateien fehlen. Bitte neu installieren.');
+  else if (s.other_entry) {
+    state = tf('Im Spiel ist Voicigame aus einem anderen Ordner eingetragen: {}', s.other_entry);
+    extra = tf('Beim Installieren wird dieser Eintrag ersetzt.');
+  }
+  $('#vgState').textContent = state;
+  $('#vgState2').textContent = extra;
+  $('#vgState2').hidden = !extra;
+  $('#vgInstall').hidden = s.installed;
+  $('#vgInstall').disabled = !ready;
+  $('#vgUpdate').hidden = !s.installed;
+  $('#vgUpdate').disabled = !ready;
+  $('#vgUpdate').classList.toggle('primary', s.installed && !s.up_to_date);
+  $('#vgRemove').hidden = !s.removable;
+  $('#vgRemove').disabled = $('#vgPick').disabled = false;
+  if (document.activeElement !== $('#vgGameDir')) $('#vgGameDir').value = s.game_dir || '';
+  // weitere gefundene Spielordner (z. B. zwei Fassungen des Spiels): ein Klick wählt ihn
+  const others = (s.found || []).filter(p => p.toLowerCase() !== (s.game_dir || '').toLowerCase());
+  $('#vgOtherList').innerHTML = others.map(p => `<button class="btn small quiet" data-dir="${esc(p)}">${esc(p)}</button>`).join('');
+  $('#vgOthers').hidden = !others.length;
+  $('#vgFound').hidden = s.source !== 'found';
+  $('#vgOpen').disabled = !s.exe;
+}
+async function setVoicigameDir(path) {
+  try {
+    await api('POST', '/api/voicigame/game-dir', { path });
+    toast(tf('Spielordner gespeichert.'), false, 1500);
+  } catch (e) { toast(e.message, true); }
+  renderVoicigame();
+}
+async function voicigameAction(what) {
+  if (what === 'remove' && !await dialog({ title: 'Voicigame entfernen?', tone: 'danger', ok: 'Entfernen',
+    text: 'Der Eintrag in override.cfg wird entfernt, die Mod-Dateien kommen in den Papierkorb.' })) return;
+  const btns = ['#vgInstall', '#vgUpdate', '#vgRemove', '#vgPick'].map(s => $(s));
+  btns.forEach(b => (b.disabled = true));
+  try {
+    await api('POST', `/api/voicigame/${what === 'remove' ? 'remove' : 'install'}`);
+    toast(tf({ install: 'Voicigame ist installiert. Es startet mit dem nächsten Spielstart.',
+               update: 'Voicigame ist aktualisiert.', remove: 'Voicigame ist entfernt.' }[what]));
+  } catch (e) { toast(e.message, true); }
+  renderVoicigame();
+}
+$('#vgInstall').onclick = () => voicigameAction('install');
+$('#vgUpdate').onclick = () => voicigameAction('update');
+$('#vgRemove').onclick = () => voicigameAction('remove');
+$('#vgGameDir').addEventListener('change', e => { const v = e.target.value.trim(); if (v) setVoicigameDir(v); });
+$('#vgPick').onclick = async () => {
+  const cur = $('#vgGameDir').value.trim();
+  let path = null;
+  const pick = window.pywebview?.api?.pick_game_exe;   // im Voicitool-Fenster: Windows-Dialog
+  if (pick) {
+    try { path = await pick(cur); } catch (e) { toast(e.message, true); return; }
+  } else {   // im Browser: Pfad eintippen oder einfügen
+    path = await dialog({ title: 'Spielordner', text: 'Pfad zum Ordner mit The Choicer Voicer.exe oder zur exe selbst.',
+                          input: cur, placeholder: 'C:\\…\\The Choicer Voicer', maxLength: 500, icon: 'folder' });
+  }
+  if (path) setVoicigameDir(path);
+};
+$('#vgOtherList').addEventListener('click', e => { const b = e.target.closest('[data-dir]'); if (b) setVoicigameDir(b.dataset.dir); });
+$('#vgOpen').onclick = async () => { try { await api('POST', '/api/voicigame/open'); } catch (e) { toast(e.message, true); } };
+$('#btnVoicigame').onclick = () => openSettings('voicigame');
 
 /* Ordner öffnen (Speicher, Protokolle, Spielordner) */
 $('#settings').addEventListener('click', async e => {
