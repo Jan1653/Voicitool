@@ -1,5 +1,12 @@
 [
   {
+    "build": 38,
+    "date": "2026-09-21",
+    "changes": [
+      "Voicigame shows its real version number now (0.2.0), so you can see when the mod was updated."
+    ]
+  },
+  {
     "build": 37,
     "date": "2026-09-21",
     "changes": [
