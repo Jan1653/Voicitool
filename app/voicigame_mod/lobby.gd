@@ -24,6 +24,7 @@ var _host_plays: CheckBox
 var _name_edit: LineEdit
 var _qr_http: HTTPRequest
 var update_note := ""            # setzt main.gd: Update installiert oder verfügbar
+var _kick_armed := ""            # Spieler, bei dem „Entfernen“ schon einmal gedrückt wurde (zweiter Klick entfernt)
 
 
 static func tr_(s: String, args: Array = []) -> String:
@@ -210,7 +211,11 @@ func _refresh() -> void:
 		_list.add_child(UI.text(tr_("Noch niemand da. Handy-Kamera auf den QR-Code halten oder den Link öffnen."), 18, 420, UI.MUTED))
 	for p in web:
 		var row := HBoxContainer.new()
-		row.add_child(UI.label(("● " if p.get("connected", false) else "○ ") + str(p.get("name", "?")), 22))
+		row.add_theme_constant_override("separation", 14)
+		row.add_child(UI.label(("● " if p.get("connected", false) else "○ ") + str(p.get("name", "?")), 22))   # Knopf direkt dahinter
+		var pid := str(p.get("id", ""))
+		var armed := _kick_armed == pid
+		row.add_child(UI.small_button(tr_("Wirklich?") if armed else tr_("Entfernen"), _on_kick.bind(pid), armed))
 		_list.add_child(row)
 	if not bridge.connected and bridge.has_room():
 		_status.text = tr_("Verbindung zum Server wird aufgebaut …")
@@ -227,6 +232,23 @@ func _on_room_lost() -> void:
 	_qr.texture = null
 	_status.text = tr_("Raum wird erstellt …")
 	bridge.create_room()
+
+
+## Spieler entfernen: erster Klick fragt nach, zweiter entfernt. Nach 4 s ohne zweiten Klick zurück.
+func _on_kick(pid: String) -> void:
+	if _kick_armed == pid:
+		_kick_armed = ""
+		bridge.kick(pid)
+	else:
+		_kick_armed = pid
+		get_tree().create_timer(4.0).timeout.connect(_disarm_kick.bind(pid))
+	_refresh()
+
+
+func _disarm_kick(pid: String) -> void:
+	if _kick_armed == pid:
+		_kick_armed = ""
+		_refresh()
 
 
 func _on_queued(position: int) -> void:

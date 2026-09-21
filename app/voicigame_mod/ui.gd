@@ -10,6 +10,22 @@ const MUTED := Color(0.7, 0.75, 0.8)
 const WARN := Color(1.0, 0.85, 0.45)
 
 
+## Kleiner schlichter Knopf (z. B. „Entfernen“ in Spielerlisten). warn: rote Schrift.
+static func small_button(text: String, cb: Callable, warn := false) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 16)
+	var f := font(FONT_TEXT)
+	if f:
+		b.add_theme_font_override("font", f)
+	if warn:
+		for state in ["font_color", "font_hover_color", "font_pressed_color"]:
+			b.add_theme_color_override(state, Color(1.0, 0.45, 0.45))
+	b.pressed.connect(cb)
+	return b
+
+
 static func font(path: String) -> Font:
 	return load(path) if ResourceLoader.exists(path) else null
 

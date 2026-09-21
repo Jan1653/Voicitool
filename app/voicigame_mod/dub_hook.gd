@@ -78,6 +78,7 @@ var _ready_since := 0            # seit wann die PC-Zeile bereit ist (ms, nur Te
 var _mic_volume = null           # Lautstärke des Spiel-Mikrofons während einer Einspielung
 var _inj_player: AudioStreamPlayer   # spielt die Handy-Aufnahme in den Kanal des Mikrofons
 var _static_vol = null           # Lautstärke des Rausch-Videos, solange die Lobby darüber liegt
+var _kick_armed := ""            # Spieler, bei dem „Entfernen“ schon einmal gedrückt wurde (zweiter Klick entfernt)
 var _inject_start := Callable()
 var _skip_sent := ""             # für diese Zeile wurde schon „überspringen“ geschickt
 var _done_sent := false
@@ -1357,6 +1358,23 @@ func _leave_hub() -> void:
 		m.world.return_to_dub_selection()
 
 
+## Spieler entfernen: erster Klick fragt nach, zweiter entfernt. Nach 4 s ohne zweiten Klick zurück.
+func _on_kick(pid: String) -> void:
+	if _kick_armed == pid:
+		_kick_armed = ""
+		bridge._send({"type": "dub.kick", "playerId": pid})
+	else:
+		_kick_armed = pid
+		get_tree().create_timer(4.0).timeout.connect(_disarm_kick.bind(pid))
+	_refresh()
+
+
+func _disarm_kick(pid: String) -> void:
+	if _kick_armed == pid:
+		_kick_armed = ""
+		_refresh()
+
+
 ## Nur die aktuelle Zeile überspringen, auch wenn doppelt geklickt.
 func _skip_line() -> void:
 	var cur = _dub().get("turn")
@@ -1424,8 +1442,17 @@ func _refresh() -> void:
 			tag = _t("lädt {}/{}", [int(info.progress.get("have", 0)), int(info.progress.get("need", 0))])
 		else:
 			tag = _t("prüft")
-		var row := _label("● %s · %s" % [str(p.get("name", "?")), tag], 22, false, col)
-		_players_box.add_child(row)
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 12)
+		line.add_child(_label("● %s · %s" % [str(p.get("name", "?")), tag], 22, false, col))   # Knopf direkt dahinter
+		if str(p.get("kind", "")) == "phone":
+			var armed := _kick_armed == pid
+			var kb := _small_button(_t("Wirklich?") if armed else _t("Entfernen"), _on_kick.bind(pid))
+			kb.focus_mode = Control.FOCUS_NONE
+			if armed:
+				kb.add_theme_color_override("font_color", Color(1.0, 0.45, 0.45))
+			line.add_child(kb)
+		_players_box.add_child(line)
 	# Figuren
 	for c in _chars_box.get_children():
 		c.queue_free()

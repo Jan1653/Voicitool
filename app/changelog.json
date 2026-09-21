@@ -1,5 +1,12 @@
 [
   {
+    "build": 42,
+    "date": "2026-09-22",
+    "changes": [
+      "Voicigame 0.5.0: the host can remove players from the lobby."
+    ]
+  },
+  {
     "build": 41,
     "date": "2026-09-21",
     "changes": [
