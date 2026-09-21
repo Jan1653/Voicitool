@@ -9,6 +9,7 @@ signal recording_received(round_id: String, player_id: String, stream: AudioStre
 signal recording_failed(round_id: String, player_id: String)
 signal show_recording(round_id: String, player_id: String)   # neue Handy-Aufnahme liegt auf dem Server
 signal room_lost                                             # Raum gibt es auf dem Server nicht mehr
+signal queued(position: int)                                 # Server voll: Platz in der Warteschlange, es geht von selbst weiter
 signal clip_uploaded(clip_id: String, ok: bool)
 signal error_received(code: String, message: String)
 signal message_received(msg: Dictionary)   # jede Nachricht vom Server (Dub-Modus hört hier mit)
@@ -30,6 +31,8 @@ var _reconnect_at := 0
 var _http: HTTPRequest
 var _jobs: Array = []
 var _job = null
+var _queue_ticket := ""          # Wartenummer, wenn der Server gerade voll ist
+var _queue_retry_at := 0
 
 
 func _init() -> void:
@@ -57,7 +60,12 @@ func web_players() -> Array:
 
 func create_room() -> void:
 	close_room()
-	_http_job(HTTPClient.METHOD_POST, "/api/rooms", ["Content-Type: application/json"], "{}".to_utf8_buffer(), _on_room_created)
+	_request_room()
+
+
+func _request_room() -> void:
+	var path := "/api/rooms" + ("?ticket=" + _queue_ticket.uri_encode() if _queue_ticket != "" else "")
+	_http_job(HTTPClient.METHOD_POST, path, ["Content-Type: application/json"], "{}".to_utf8_buffer(), _on_room_created)
 
 
 func close_room() -> void:
@@ -70,6 +78,8 @@ func close_room() -> void:
 	state = {}
 	connected = false
 	_pending.clear()
+	_queue_ticket = ""
+	_queue_retry_at = 0
 
 
 func qr_url() -> String:
@@ -85,6 +95,16 @@ func back_to_lobby() -> void:
 
 
 func _on_room_created(code: int, body: PackedByteArray) -> void:
+	if code == 503:
+		# Server voll: in der Warteschlange bleiben und in ein paar Sekunden mit derselben Wartenummer nachfragen
+		var busy = JSON.parse_string(body.get_string_from_utf8()) if body.size() else null
+		var q = busy.get("queue") if busy is Dictionary else null
+		if q is Dictionary:
+			_queue_ticket = str(q.get("ticket", ""))
+			_queue_retry_at = Time.get_ticks_msec() + 4000
+			queued.emit(int(q.get("position", 0)))
+			return
+	_queue_ticket = ""
 	if code != 200:
 		# Meldung des Servers (z. B. „Zu viele neue Räume …“) bevorzugen, die Anzeige übersetzt sie
 		var info = JSON.parse_string(body.get_string_from_utf8()) if body.size() else null
@@ -163,6 +183,9 @@ func _connect_ws() -> void:
 
 
 func _process(_delta: float) -> void:
+	if _queue_retry_at > 0 and Time.get_ticks_msec() >= _queue_retry_at:
+		_queue_retry_at = 0
+		_request_room()
 	if not has_room():
 		return
 	_ws.poll()

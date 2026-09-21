@@ -23,6 +23,7 @@ var _status: Label
 var _host_plays: CheckBox
 var _name_edit: LineEdit
 var _qr_http: HTTPRequest
+var update_note := ""            # setzt main.gd: Update installiert oder verfügbar
 
 
 static func tr_(s: String, args: Array = []) -> String:
@@ -38,6 +39,7 @@ func setup(b: Node) -> void:
 	bridge.connection_changed.connect(func(_c): _refresh())
 	bridge.error_received.connect(_on_error)
 	bridge.room_lost.connect(_on_room_lost)
+	bridge.queued.connect(_on_queued)
 	if bridge.has_room():
 		_show_host()     # Raum läuft schon (zurück aus dem Spiel): direkt die Host-Seite
 	else:
@@ -70,6 +72,8 @@ func _show_choice() -> void:
 	box.add_child(UI.button(tr_("Lobby beitreten"), _on_join, 420))
 	box.add_child(UI.button(tr_("Zurück"), _on_back, 420))
 	box.add_child(_language_row())
+	if update_note != "":
+		box.add_child(UI.text(update_note, 18, 620, UI.ACCENT))
 
 
 ## Sprache des Mods: wie Windows oder fest gewählt. Wirkt sofort.
@@ -121,7 +125,7 @@ func _show_host() -> void:
 	left.add_child(UI.label("VOICIGAME", 24, true, UI.ACCENT))
 	left.add_child(UI.text(tr_("Mitspielen am Handy oder im Browser"), 18, 380))
 	left.add_child(UI.label(tr_("Raumcode"), 16, false, UI.MUTED))
-	_code = UI.label("····", 72, true)
+	_code = UI.label("", 72, true)   # Code kommt, sobald der Raum steht
 	left.add_child(_code)
 	_qr = TextureRect.new()
 	_qr.custom_minimum_size = Vector2(220, 220)
@@ -218,11 +222,16 @@ func _refresh() -> void:
 func _on_room_lost() -> void:
 	if not is_instance_valid(_code):
 		return
-	_code.text = "····"
+	_code.text = ""
 	_link.text = ""
 	_qr.texture = null
 	_status.text = tr_("Raum wird erstellt …")
 	bridge.create_room()
+
+
+func _on_queued(position: int) -> void:
+	if is_instance_valid(_status):
+		_status.text = tr_("Der Server ist gerade voll. Du bist in der Warteschlange auf Platz {}. Es geht automatisch weiter.", [position])
 
 
 func _on_error(_code: String, message: String) -> void:

@@ -1,5 +1,12 @@
 [
   {
+    "build": 41,
+    "date": "2026-09-21",
+    "changes": [
+      "Voicigame 0.4.0: when the server is full, new rooms wait in a short queue instead of failing."
+    ]
+  },
+  {
     "build": 40,
     "date": "2026-09-21",
     "changes": [

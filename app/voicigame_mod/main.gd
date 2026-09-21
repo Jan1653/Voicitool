@@ -11,7 +11,7 @@ extends Node
 ##   Gameshow               show_hook.gd legt die Handy-Aufnahmen in die Aufnahme des Spiels
 ##   Synchronisieren        dub_hook.gd: Pack im Spiel wählen, Web-Spieler sprechen ihre Figuren im Browser
 
-const VERSION := "0.3.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
+const VERSION := "0.4.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
 const CONFIG_PATH := "user://voicigame.cfg"
 const MEMBER_SCENE := "res://scenes/nav_specific/play_flow/select_member_count.tscn"
 const DUB_SELECT_SCENE := "res://scenes/nav_specific/clip_selector_menus/clip_selection_dub.tscn"
@@ -31,6 +31,7 @@ const JoinScreen = preload("join_screen.gd")
 const I18n = preload("i18n.gd")
 const Stream = preload("stream.gd")
 const DubHook = preload("dub_hook.gd")
+const Updater = preload("updater.gd")
 
 var bridge: Node
 var _lobby: CanvasLayer
@@ -39,6 +40,7 @@ var _menu: Node                  # der Solo/Gruppe-Bildschirm, über den wir wei
 var _dub_active := false         # Raum ist im Dub-Modus (Synchronisieren)
 var _dub_host_plays := true
 var dub_hook: Node
+var updater: Node
 
 
 func _ready() -> void:
@@ -55,6 +57,11 @@ func _ready() -> void:
 	get_tree().node_added.connect(_on_node_added)
 	Players.remove_all()   # Reste einer abgestürzten Sitzung
 	DubHook.restore_parked()
+	# Neuere Mod-Version vom Server holen (nicht bei Voicitool-Installation, die aktualisiert Voicitool)
+	updater = Updater.new()
+	updater.name = "Updater"
+	add_child(updater)
+	updater.start(bridge.server_url, I18n.base_dir, VERSION)
 	print("Voicigame %s geladen, Server %s" % [VERSION, bridge.server_url])
 
 
@@ -167,12 +174,24 @@ func _open_lobby(menu: Node) -> void:
 		return
 	_lobby = Lobby.new()
 	_lobby.name = "VoicigameLobby"
+	_lobby.update_note = _update_note()
 	get_tree().root.add_child(_lobby)
 	_lobby.setup(bridge)
 	_lobby.start_requested.connect(_start_session)
 	_lobby.join_requested.connect(_open_join)
 	_lobby.dub_requested.connect(_start_dub)
 	_lobby.closed.connect(_on_lobby_closed)
+
+
+func _update_note() -> String:
+	if not is_instance_valid(updater):
+		return ""
+	match updater.state:
+		"installed":
+			return I18n.t("Update auf {} installiert. Es gilt ab dem nächsten Spielstart.", [updater.new_version])
+		"available":
+			return I18n.t("Neue Version {} verfügbar. Hol sie dir auf GameBanana oder mit Voicitool.", [updater.new_version])
+	return ""
 
 
 func _on_lobby_closed() -> void:
