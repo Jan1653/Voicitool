@@ -2,6 +2,7 @@ extends CanvasLayer
 ## „Lobby beitreten": dieser PC spielt bei einem anderen Host mit, wie ein Handy.
 ##   Eingabe   Raumcode und Name
 ##   Raum      Mitspieler, je Runde: Clip anhören, Los, Countdown, Aufnahme, Senden, Punkte, Rangliste
+##   Dub-Raum  Pack auf diesem PC suchen (sonst laden), dann im eigenen Spiel mitspielen (dub_hook.gd als Mitspieler)
 
 signal closed
 
@@ -9,6 +10,7 @@ const UI = preload("ui.gd")
 const I18n = preload("i18n.gd")
 const JoinClient = preload("join_client.gd")
 const Players = preload("players.gd")
+const DubPack = preload("dub_pack.gd")
 const CONFIG := "user://voicigame.cfg"
 const COUNTDOWN := 3
 
@@ -43,6 +45,17 @@ var _sound := true
 var _gen_player: AudioStreamPlayer
 var _gen: AudioStreamGeneratorPlayback
 var _gen_rate := 0
+
+# Dub-Raum: dieser PC spielt im eigenen Spiel mit
+var _pack: Node                  # dub_pack.gd: sucht oder lädt das Pack
+var _pack_version := -1
+var _pack_state := ""            # "" | search | download | ready | error
+var _pack_path := ""
+var _pack_pct := 0
+var _pack_http: HTTPRequest
+var _in_dub := false             # gerade in der Dub-Szene des Spiels
+var _watching := false           # selbst „Zurück“ gedrückt: schaut nur zu, bis „Mitmachen“
+var _btn_dub: Control
 
 var _round: Dictionary = {}
 var _phase := ""                 # "" | countdown | recording | sending | sent | error
@@ -244,6 +257,8 @@ func _show_room() -> void:
 	_btn_go = UI.button(tr_("Los"), _on_go, 150, 52)
 	_btn_stop = UI.button(tr_("Aufnahme beenden"), _on_stop, 260, 52)
 	_btn_browser = UI.button(tr_("Im Browser öffnen"), _open_browser, 260, 52)
+	_btn_dub = UI.button(tr_("Mitmachen"), _on_join_dub, 200, 52)
+	buttons.add_child(_btn_dub)
 	buttons.add_child(_btn_listen)
 	buttons.add_child(_btn_go)
 	buttons.add_child(_btn_stop)
@@ -327,6 +342,7 @@ func _refresh() -> void:
 	_btn_go.visible = false
 	_btn_stop.visible = false
 	_btn_browser.visible = false
+	_btn_dub.visible = false
 	_result.text = ""
 	_result.visible = false
 
@@ -334,11 +350,9 @@ func _refresh() -> void:
 		_title.text = tr_("Verbindung weg, verbinde neu …")
 		_sub.text = ""
 		return
-	# Dub-Raum: Video und Zeilen gibt es nur im Browser, dieser PC ist hier Zuschauer
+	# Dub-Raum: im eigenen Spiel mit dem eigenen Pack mitspielen
 	if str(st.get("game", "show")) == "dub":
-		_title.text = tr_("In diesem Raum wird synchronisiert.")
-		_sub.text = tr_("Mach im Browser mit: dort siehst du das Video und nimmst deine Zeilen auf.")
-		_btn_browser.visible = true
+		_refresh_dub(st)
 		return
 	if phase == "playing" and not st.get("hostOnline", true):
 		_title.text = tr_("Verbindung zum PC unterbrochen. Warte, bis er wieder da ist …")
@@ -401,6 +415,122 @@ func _refresh() -> void:
 				_meter.visible = true   # Pegel schon vorher: zeigt, ob das Mikro ankommt
 	if _phase == "countdown":
 		pass   # Zahl setzt _record()
+
+
+# ------------------------------------------------------------------
+# Dub-Raum: Pack finden oder laden, dann ins Spiel
+# ------------------------------------------------------------------
+
+func _refresh_dub(st: Dictionary) -> void:
+	_title.text = tr_("In diesem Raum wird synchronisiert.")
+	_btn_browser.visible = true
+	if is_instance_valid(_live_wait):
+		_live_wait.visible = false
+	var d = st.get("dub")
+	var pack_ok: bool = d is Dictionary and d.get("pack") is Dictionary and d.get("packStatus") is Dictionary \
+		and str(d.packStatus.get("status", "")) == "ready"
+	if not pack_ok:
+		_sub.text = tr_("Warte, bis der PC ein Pack wählt …")
+		return
+	var version := int(d.get("version", -1))
+	if version != _pack_version:
+		_pack_version = version
+		_check_pack()
+	match _pack_state:
+		"search":
+			_sub.text = tr_("Das Pack „{}“ wird auf diesem PC gesucht …", [str(d.pack.get("title", ""))])
+		"download":
+			_sub.text = tr_("Dir fehlt dieses Pack, es wird geladen: {} %", [_pack_pct])
+		"error":
+			_sub.text = tr_("Das Pack konnte nicht geladen werden.") + " " + tr_("Mach im Browser mit: dort siehst du das Video und nimmst deine Zeilen auf.")
+		"ready":
+			if _watching:
+				_sub.text = tr_("Du schaust zu.")
+				_btn_dub.visible = true
+			elif not _in_dub:
+				_enter_dub.call_deferred()
+
+
+## Pack-Angaben holen (Fingerabdruck, Dateien), dann hier suchen, sonst laden.
+func _check_pack() -> void:
+	_pack_state = "search"
+	_pack_path = ""
+	if is_instance_valid(_pack):
+		_pack.stop()
+		_pack.queue_free()
+	if _pack_http == null:
+		_pack_http = HTTPRequest.new()
+		_pack_http.timeout = 20.0
+		_pack_http.request_completed.connect(_on_pack_json)
+		add_child(_pack_http)
+	_pack_http.cancel_request()
+	_pack_http.request("%s/api/rooms/%s/dub/pack.json?t=%s" % [client.server_url, client.code, str(client.token).uri_encode()])
+
+
+func _on_pack_json(_result: int, code: int, _h: PackedStringArray, body: PackedByteArray) -> void:
+	var j = JSON.parse_string(body.get_string_from_utf8()) if code == 200 else null
+	var pack = j.get("pack") if j is Dictionary else null
+	if not pack is Dictionary or int(j.get("version", -1)) != _pack_version or str(pack.get("fp", "")) == "":
+		# Noch nicht so weit (oder Netz): gleich nochmal, solange dieses Pack dran ist
+		var v := _pack_version
+		get_tree().create_timer(2.0).timeout.connect(func(): if v == _pack_version and _pack_state == "search": _check_pack())
+		return
+	_pack = DubPack.new()
+	_pack.client = client
+	_pack.info = pack
+	add_child(_pack)
+	_pack.found.connect(_on_pack_found)
+	_pack.progress.connect(func(done_b, total_b):
+		_pack_pct = int(100.0 * done_b / maxf(1.0, total_b))
+		_refresh())
+	_pack.failed.connect(func(_m):
+		_pack_state = "error"
+		_refresh())
+	var path: String = _pack.find_local()
+	_dbg("Pack %s: %s" % [pack.get("fp", ""), path if path != "" else "fehlt"])
+	if path != "":
+		_on_pack_found(path)
+		return
+	# Fehlt: der Server soll es vom Host holen, dann hierher laden
+	client._send({"type": "dub.ready", "have": 0, "need": pack.get("files", []).size(), "version": _pack_version})
+	_pack_state = "download"
+	_pack.download()
+	_refresh()
+
+
+func _on_pack_found(path: String) -> void:
+	_pack_path = path
+	_pack_state = "ready"
+	var n: int = _pack.info.get("files", []).size()
+	client._send({"type": "dub.ready", "have": n, "need": n, "version": _pack_version, "own": true})
+	_refresh()
+
+
+func _enter_dub() -> void:
+	var main = get_node_or_null("/root/Voicigame")
+	if main == null or _pack_path == "" or _in_dub or _watching:
+		return
+	_in_dub = true
+	visible = false
+	_player.stop()
+	if _gen_player:
+		_gen_player.stop()
+		_gen_rate = 0
+	main.enter_member_dub(_pack_path, client)
+
+
+## Aus der Dub-Szene zurück (main.gd). by_user: selbst „Zurück“ gedrückt, dann nur zuschauen.
+func on_dub_left(by_user: bool) -> void:
+	_in_dub = false
+	_watching = by_user
+	visible = true
+	_refresh()
+
+
+func _on_join_dub() -> void:
+	_watching = false
+	client._send({"type": "dub.spectate", "on": false})
+	_refresh()
 
 
 func _pts(v) -> String:
@@ -580,6 +710,8 @@ func _toggle_sound() -> void:
 func _close() -> void:
 	if _phase in ["countdown", "recording"]:
 		_mute_game(false)
+	if is_instance_valid(_pack):
+		_pack.stop()
 	client.leave()
 	closed.emit()
 	queue_free()

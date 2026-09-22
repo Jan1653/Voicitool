@@ -10,8 +10,9 @@ extends Node
 ##   Weiter                 Web-Spieler werden Gruppenmitglieder, danach normaler Spielablauf
 ##   Gameshow               show_hook.gd legt die Handy-Aufnahmen in die Aufnahme des Spiels
 ##   Synchronisieren        dub_hook.gd: Pack im Spiel wählen, Web-Spieler sprechen ihre Figuren im Browser
+##   Mitspielen (Dub)       PCs mit Mod, die beitreten, spielen im eigenen Spiel mit dem eigenen Pack (dub_pack.gd)
 
-const VERSION := "0.8.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
+const VERSION := "0.9.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
 const CONFIG_PATH := "user://voicigame.cfg"
 const MEMBER_SCENE := "res://scenes/nav_specific/play_flow/select_member_count.tscn"
 const DUB_SELECT_SCENE := "res://scenes/nav_specific/clip_selector_menus/clip_selection_dub.tscn"
@@ -39,6 +40,7 @@ var _join: CanvasLayer
 var _menu: Node                  # der Solo/Gruppe-Bildschirm, über den wir weiterschalten
 var _dub_active := false         # Raum ist im Dub-Modus (Synchronisieren)
 var _dub_host_plays := true
+var _member_client: Node          # Mitspieler-PC: Verbindung aus join_screen.gd, solange er in der Dub-Szene ist
 var dub_hook: Node
 var updater: Node
 
@@ -97,6 +99,9 @@ func _on_node_added(node: Node) -> void:
 			node.ready.connect(_back_from_dub.bind(node), CONNECT_ONE_SHOT)
 	elif node.scene_file_path in OTHER_PLAY_SCENES:
 		_dub_active = false   # ein späteres Solo-Dub gehört nicht mehr zur Voicigame-Runde
+		_member_client = null
+	elif node.scene_file_path == DUB_SCENE and is_instance_valid(_member_client):
+		node.ready.connect(_attach_member_dub.bind(node), CONNECT_ONE_SHOT)
 	elif node.scene_file_path == DUB_SCENE and _dub_active and bridge.has_room():
 		node.ready.connect(_attach_dub.bind(node), CONNECT_ONE_SHOT)
 	elif bridge.has_room() and node.has_method("GENERIC_RF_RecordContestants") and not _web_slots().is_empty():
@@ -241,6 +246,53 @@ func _attach_dub(dub_scene: Node) -> void:
 	dub_hook.name = "DubHook"
 	add_child(dub_hook)
 	dub_hook.attach(dub_scene, bridge, _dub_host_plays)
+
+
+## Mitspieler-PC: Dub-Runde im eigenen Spiel mit dem Pack in diesem Ordner (ruft join_screen.gd).
+func enter_member_dub(path: String, client: Node) -> void:
+	var metro = get_node_or_null("/root/Metro")
+	var m = get_node_or_null("/root/M")
+	if metro == null or m == null:
+		push_warning("Voicigame: Spielmodule nicht gefunden")
+		return
+	_member_client = client
+	m.session_type = m.SESSION_TYPE.VIDEO_DUB
+	metro.gameplay_resource_dub_mode = GameplayResourceDubMode.new(path)
+	m.world.enter_dub_mode()
+
+
+func _attach_member_dub(dub_scene: Node) -> void:
+	if is_instance_valid(dub_hook):
+		dub_hook.queue_free()
+	dub_hook = DubHook.new()
+	dub_hook.name = "DubHook"
+	add_child(dub_hook)
+	dub_hook.scene_left.connect(_on_member_dub_left.bind(dub_hook), CONNECT_ONE_SHOT)
+	dub_hook.attach(dub_scene, _member_client, true, true)
+
+
+func _on_member_dub_left(hook: Node) -> void:
+	var by_user: bool = is_instance_valid(hook) and hook.user_left
+	_member_client = null
+	if is_instance_valid(_join):
+		_join.on_dub_left(by_user)
+
+
+## Zurück ins Solo/Gruppe-Menü (Mitspieler nach der Dub-Runde). Das Originalspiel kennt nur „zurück zur Dub-Auswahl“:
+## dasselbe, nur mit diesem Menü. Neuere Fassungen (Steam-Mod) haben return_to_menu_slide.
+func return_to_member_menu() -> void:
+	var m = get_node_or_null("/root/M")
+	if m == null:
+		return
+	if m.world.has_method("return_to_menu_slide"):
+		m.world.return_to_menu_slide(MEMBER_SCENE)
+		return
+	await m.world._standard_down()
+	var menu: Node = load("res://scene/menu/_master/menu_master.tscn").instantiate()
+	menu.stopgap_ignore_standard_instruction = true
+	m.world.primary_capsule.add_child(menu)
+	menu.NewSlide(MEMBER_SCENE, false)
+	await m.world._standard_up()
 
 
 ## Bei einem anderen Host mitspielen.

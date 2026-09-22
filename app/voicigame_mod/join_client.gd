@@ -14,6 +14,7 @@ signal kicked
 signal clip_ready(clip_id: String, stream: AudioStream)
 signal upload_done(round_id: String, ok: bool, message: String)
 signal live_frame(data: PackedByteArray)   # Live-Bild/Ton vom Host, Format siehe server/src/stream.js
+signal message_received(msg: Dictionary)   # jede Nachricht vom Server (Dub-Modus im eigenen Spiel hört hier mit)
 
 const WavUtil = preload("wav_util.gd")
 const Bridge = preload("bridge.gd")
@@ -28,6 +29,10 @@ var token := ""
 var player_id := ""
 var state: Dictionary = {}
 var connected := false
+# Wie bridge.gd, damit dub_hook.gd auch hier mitspielen kann (Dub-Modus im eigenen Spiel)
+var room_code := ""
+var join_url := ""
+var host_key := ""               # bleibt leer: dieser PC ist Mitspieler, nicht Host
 
 var _ws := WebSocketPeer.new()
 var _active := false
@@ -40,7 +45,6 @@ var _clip_busy := ""
 var _up_round := ""
 var _watch := false
 var _last_round := ""            # zuletzt gemeldete Gameshow-Runde
-var _spectating := false         # im Dub-Raum als Zuschauer gemeldet
 
 # Mikrofon
 var _mic: AudioStreamPlayer
@@ -72,13 +76,14 @@ func _ready() -> void:
 
 func join(room_code: String, name: String) -> void:
 	code = room_code.strip_edges().to_upper()
+	self.room_code = code
+	join_url = "%s/?r=%s" % [server_url, code]
 	player_name = name.strip_edges().left(24)
 	var cfg := ConfigFile.new()
 	cfg.load(CONFIG)
 	token = str(cfg.get_value("join", "token", "")) if str(cfg.get_value("join", "code", "")) == code else ""
 	_save_cfg({"name": player_name})
 	_last_round = ""
-	_spectating = false
 	_active = true
 	_connect()
 
@@ -157,8 +162,23 @@ func _send(msg: Dictionary) -> void:
 		_ws.send_text(JSON.stringify(msg))
 
 
+## Für dub_hook.gd (wie bridge.gd): im Raum?
+func has_room() -> bool:
+	return _active and code != ""
+
+
+## Mitspieler aus dem Browser oder mit eigenem Spiel (alle außer den Spielern am Host-PC).
+func web_players() -> Array:
+	return state.get("players", []).filter(func(p): return str(p.get("kind", "")) == "phone")
+
+
+func qr_url() -> String:
+	return "%s/api/rooms/%s/qr.png" % [server_url, code]
+
+
 func _handle(msg: Dictionary) -> void:
 	_dbg("Nachricht " + str(msg.get("type", "")))
+	message_received.emit(msg)
 	match str(msg.get("type", "")):
 		"welcome":
 			player_id = str(msg.playerId)
@@ -168,12 +188,6 @@ func _handle(msg: Dictionary) -> void:
 		"state":
 			state = msg.state if msg.state is Dictionary else {}
 			_preload_clips()
-			# Dub-Raum: aufnehmen geht hier nicht (Video und Zeilen gibt es nur im Browser). Als Zuschauer
-			# melden, sonst zählt der Server diesen PC als Mitspieler, der seine Zeilen nie aufnimmt.
-			var dub = state.get("dub")
-			if str(state.get("game", "")) == "dub" and not _spectating and dub is Dictionary and str(dub.get("phase", "")) == "hub":
-				_spectating = true
-				_send({"type": "dub.spectate", "on": true})
 			# Eine Runde, die während eines Verbindungsabbruchs begann, steht nur im Zustand
 			var show = state.get("show")
 			var rnd = show.get("round") if show is Dictionary else null

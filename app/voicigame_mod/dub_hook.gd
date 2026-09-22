@@ -10,6 +10,12 @@ extends Node
 ##   Ende        Ergebnis des Spiels, „Watch“ startet auf allen Geräten gleichzeitig, Video-Export
 ##
 ## Zeile mit zwei Figuren von zwei Leuten: jeder nimmt getrennt auf, das Spiel bekommt die Mischung.
+##
+## Zwei Rollen:
+##   Host        dieser PC hat den Raum und das Pack gewählt (bridge.gd). Das Pack geht nur auf den Server,
+##               wenn es jemand braucht (Browser ohne Zwischenspeicher, PCs ohne das Pack, Video-Export).
+##   Mitspieler  dieser PC ist mit Mod beigetreten (join_client.gd) und spielt im eigenen Spiel mit dem eigenen
+##               Pack mit: eigene Zeilen aufnehmen, die der anderen laufen wie beim Host durch das Spiel.
 
 const WavUtil = preload("wav_util.gd")
 const I18n = preload("i18n.gd")
@@ -24,6 +30,7 @@ const PARK_SUFFIX := " (vor Voicigame)"
 const BUTTON_SCENE := "res://scene/module/button/button_cv.tscn"
 const FONT_BOLD := "res://graphic/font/Waukegan LDO Extended Bold.ttf"
 const FONT_TEXT := "res://graphic/font/DuruSans-Regular.ttf"
+const MAIN := "/root/Voicigame"
 
 signal pack_uploaded
 signal scene_left                   # Dub-Szene wurde verlassen (Runde vorbei oder abgebrochen)
@@ -34,9 +41,16 @@ static var test_broken_take := ""   # Aufnahmen dieser Zeile lassen sich nie lad
 var test_export_fail := false       # erster Video-Download geht schief
 var test_local_delay_ms := 0        # Test-Aufnahme für den PC erst so spät einspielen
 
-var bridge: Node
+var bridge: Node                 # Host: bridge.gd, Mitspieler: join_client.gd
 var dm: Node                     # Dub-Szene des Spiels
 var host_plays := true
+var member := false              # Mitspieler-PC (siehe oben)
+var user_left := false           # Mitspieler hat selbst „Zurück“ gedrückt (schaut dann nur zu)
+var _member_leaving := false
+var _me := LOCAL_ID              # wer an diesem PC spricht: Host „local-1“, Mitspieler die eigene Spieler-ID
+var _pack_version := -1          # Mitspieler: Pack, mit dem die Szene geladen wurde
+var _catchup := {}               # Mitspieler: Index -> true, beim Dazukommen schon gespielte Zeilen
+var _meta_count := 0             # so viele kleine Beschreibungsdateien kommen immer hoch (Figuren, Texte, Zeiten)
 var order: Array = []            # Zeilen in der Reihenfolge des Spiels (ohne übernommene)
 var use_as_is: Array = []
 var export_dir := ""             # wohin exportierte Videos kommen
@@ -50,6 +64,7 @@ var _plan := {}                  # Ankündigung für den Server: alle Dateien un
 var _up_done := 0
 var _upload_state := ""          # "" | wait_hub | uploading | commit | done | error
 var _up_began := false
+var _pack_key := ""
 var _up_tries := 0
 var _up_note := ""
 var _waiting_hub := false
@@ -126,10 +141,14 @@ static func _t(text: String, args: Array = []) -> String:
 	return I18n.t(text, args)
 
 
-func attach(dub_node: Node, b: Node, plays: bool) -> void:
+func attach(dub_node: Node, b: Node, plays: bool, as_member := false) -> void:
 	dm = dub_node
 	bridge = b
 	host_plays = plays
+	member = as_member
+	if member:
+		_me = str(bridge.player_id)
+		host_plays = true
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	export_dir = _default_export_dir()
 	_http = HTTPRequest.new()
@@ -154,16 +173,22 @@ func attach(dub_node: Node, b: Node, plays: bool) -> void:
 	bridge.state_changed.connect(func(_s): _refresh())
 	dm.tree_exiting.connect(_on_scene_left)
 	_build_ui()
-	var local := []
-	if host_plays:
-		local.append({"slot": 1, "name": _pc_name()})
-	bridge._send({"type": "local.set", "players": local})
+	if member:
+		_pack_version = int(_dub().get("version", -1))
+		bridge._send({"type": "dub.spectate", "on": false})   # wieder mitspielen, falls vorher nur zugeschaut
+	else:
+		var local := []
+		if host_plays:
+			local.append({"slot": 1, "name": _pc_name()})
+		bridge._send({"type": "local.set", "players": local})
 	_sync_clock()
 	_prepare_round()
 	_refresh()
 
 
 func _pc_name() -> String:
+	if member:
+		return str(bridge.player_name)
 	var own := Players.saved_name()
 	if own != "":
 		return own
@@ -220,6 +245,9 @@ func _pack_dir() -> String:
 ## Vorige Runde im selben Raum (Ergebnis oder abgebrochen): erst zurück in die Lobby,
 ## sonst lehnt der Server ein neues oder dasselbe Pack ab.
 func _prepare_round() -> void:
+	if member:
+		_upload_state = "done"   # Pack liegt auf diesem PC, hochladen macht der Host
+		return
 	if str(_dub().get("phase", "")) in ["playing", "paused", "results"]:
 		_ask_hub()
 		return
@@ -264,6 +292,7 @@ func _start_upload() -> void:
 		else:
 			rank[fname] = 2 + play.size()
 	_files.sort_custom(func(a, b): return rank[a["name"]] < rank[b["name"]])
+	_meta_count = _files.filter(func(f): return rank[f["name"]] == 0).size()
 	var key := "%s|%d|%d" % [dir, _files.size(), _up_total]
 	var d := _dub()
 	var have_pack = d.get("packStatus", {}).get("status", "") == "ready" if d.get("packStatus") is Dictionary else false
@@ -271,7 +300,8 @@ func _start_upload() -> void:
 		_upload_state = "commit"
 		_commit(true)
 		return
-	bridge.set_meta("dub_pack_key", key)
+	_pack_key = key   # gilt erst als „ganz oben“, wenn alles angekommen ist (siehe _on_commit_done)
+	bridge.remove_meta("dub_pack_key")
 	# Der Server kennt damit von Anfang an alle Zeilen und kann freigeben, was schon da ist
 	var res = dm.resource
 	var plan_files := []
@@ -301,6 +331,11 @@ func _upload_step() -> void:
 	if _up_index >= _files.size():
 		_upload_state = "commit"
 		_commit(false)
+		return
+	# Nach den Beschreibungen nur weiter, wenn jemand das Pack vom Server braucht; sonst warten (_process macht weiter)
+	if _up_index >= _meta_count and not bool(_dub().get("packWanted", true)):
+		_upload_state = "local"
+		_refresh()
 		return
 	var f: Dictionary = _files[_up_index]
 	var fa := FileAccess.open(f.path, FileAccess.READ)
@@ -388,6 +423,8 @@ func _on_commit_done(code: int, resp: PackedByteArray, reuse: bool) -> void:
 		_upload_retry(code, resp)
 		return
 	_upload_state = "done"
+	if not reuse:
+		bridge.set_meta("dub_pack_key", _pack_key)   # ganz oben: die nächste Runde mit diesem Pack braucht nichts neu
 	pack_uploaded.emit()
 	_refresh()
 
@@ -429,8 +466,12 @@ static func upload_error_text(code: int, err: String) -> String:
 
 func _http_job(method: int, path: String, headers: Array, body: PackedByteArray, cb: Callable, urgent := false) -> void:
 	var h := PackedStringArray(headers)
-	h.append("X-Host-Key: " + bridge.host_key)
-	var job := {"method": method, "url": bridge.server_url + path, "headers": h, "body": body, "cb": cb}
+	var url: String = bridge.server_url + path
+	if member:
+		url += ("&" if path.contains("?") else "?") + "t=" + str(bridge.token).uri_encode()
+	else:
+		h.append("X-Host-Key: " + bridge.host_key)
+	var job := {"method": method, "url": url, "headers": h, "body": body, "cb": cb}
 	if urgent:
 		_jobs.push_front(job)
 	else:
@@ -500,9 +541,10 @@ func _take_key(clip_id: String, pid: String) -> String:
 	return clip_id + "|" + pid
 
 
-func _download_take(clip_id: String, pid: String, _v) -> void:
+## own: auch eigene Aufnahmen holen (Mitspieler, der mitten in der Runde neu dazukommt)
+func _download_take(clip_id: String, pid: String, _v, own := false) -> void:
 	var k := _take_key(clip_id, pid)
-	if _takes.has(k) or _loading.has(k) or pid.begins_with("local-"):
+	if _takes.has(k) or _loading.has(k) or (pid == _me and not own):
 		return
 	if Time.get_ticks_msec() < int(_take_retry_at.get(k, 0)):
 		return
@@ -593,6 +635,14 @@ func _restore_solo_session() -> void:
 
 func _begin() -> void:
 	_park_solo_session()
+	if member:
+		_sort_like_server()
+		# Mitten in der Runde dazugekommen: was schon gespielt ist, überspringt das Spiel (als erledigt markiert),
+		# am Ende kommen dort die Aufnahmen der anderen hinein (_fill_catchup)
+		for i in order.size():
+			if _line_done_on_server(order[i]):
+				dm.performance_array[i].is_preserved_instance = true
+				_catchup[i] = true
 	_started = true
 	_game_index = dm.clip_index
 	_engage_ref = _idle_count
@@ -601,12 +651,41 @@ func _begin() -> void:
 	_refresh()
 
 
+## Mitspieler: Zeilen in die Reihenfolge des Servers bringen (die des Hosts), sonst warten beide aufeinander.
+func _sort_like_server() -> void:
+	var pos := {}
+	var turns: Array = _dub().get("turns", [])
+	for i in turns.size():
+		pos[str(turns[i].get("clipId", ""))] = i
+	if pos.is_empty():
+		return
+	var arr: Array = dm.performance_array.duplicate()
+	arr.sort_custom(func(a, b): return int(pos.get(str(a.shared_omniclip.file_name_agnostic), 99999)) < int(pos.get(str(b.shared_omniclip.file_name_agnostic), 99999)))
+	dm.performance_array.assign(arr)
+	order.clear()
+	for inst in dm.performance_array:
+		order.append(str(inst.shared_omniclip.file_name_agnostic))
+
+
+## Mitspieler: Szene verlassen, wenn der Raum nicht mehr synchronisiert, ein anderes Pack dran ist
+## oder nach dem Ende eine neue Runde vorbereitet wird (die bekommt eine frische Szene).
+func _member_should_leave(d: Dictionary) -> bool:
+	if str(bridge.state.get("game", "dub")) != "dub":
+		return true
+	if int(d.get("version", _pack_version)) != _pack_version:
+		return true
+	return _finished and str(d.get("phase", "")) == "hub"
+
+
 func _process(_delta: float) -> void:
 	if not is_instance_valid(dm) or _leaving:
 		return
 	_quiet_static(is_instance_valid(_hub) and _hub.visible)
 	var d := _dub()
 	var phase := str(d.get("phase", ""))
+	if member and not _busy and _member_should_leave(d):
+		_leave_hub()
+		return
 	if _waiting_hub:
 		if phase == "hub":
 			_waiting_hub = false
@@ -615,9 +694,12 @@ func _process(_delta: float) -> void:
 			_ask_hub()
 		return
 	if not _started:
-		if phase in ["playing", "paused"] and _upload_state in ["uploading", "commit", "done"]:
+		if phase in ["playing", "paused"] and _upload_state in ["uploading", "local", "commit", "done"]:
 			_begin()
 		return
+	if _upload_state == "local" and bool(d.get("packWanted", false)):
+		_upload_state = "uploading"   # jetzt braucht es jemand: weiter hochladen
+		_upload_step()
 	_fetch_known_takes()
 	_send_local_takes()
 	if _busy:
@@ -647,8 +729,8 @@ func _process(_delta: float) -> void:
 		_block(true, _t("Warte auf den Server …"))
 		return
 	var recs: Array = turn.get("recorders", [])
-	var web := recs.filter(func(p): return not str(p).begins_with("local-"))
-	var local := recs.has(LOCAL_ID)
+	var web := recs.filter(func(p): return str(p) != _me)
+	var local := recs.has(_me)
 	if local:
 		_unblock_game()
 		_block(false, _banner_local(web))
@@ -667,7 +749,7 @@ func _process(_delta: float) -> void:
 		if pause is Dictionary:
 			_block(true, _t("Pausiert: {} ist nicht verbunden.", [str(pause.get("name", ""))]))
 		else:
-			_block(true, _t("{} nimmt im Browser auf …", [names]))
+			_block(true, _t("{} nimmt am PC auf …", [names]) if web.all(_at_pc) else _t("{} nimmt im Browser auf …", [names]))
 		return
 	if _idle_count <= _engage_ref:
 		_block(true, _t("{} ist fertig, gleich kommt die Aufnahme …", [names]))
@@ -686,6 +768,14 @@ func _process(_delta: float) -> void:
 	if takes.is_empty():
 		_skipped[i] = true   # am Ende wie im Steam-Mod mit dem Original-Ton
 	_run_inject(_mix_to_clip(takes, i), true, str(d.get("waves", "host")) == "off")
+
+
+## Spricht diese Person an einem PC (Host-PC oder mit eigenem Spiel beigetreten)?
+func _at_pc(pid) -> bool:
+	for p in bridge.state.get("players", []):
+		if str(p.get("id", "")) == str(pid):
+			return str(p.get("kind", "")) == "local" or bool(p.get("game", false))
+	return false
 
 
 func _turn_for(clip_id: String) -> Dictionary:
@@ -729,7 +819,7 @@ func _next_text() -> String:
 	var recs: Array = _turn_for(order[i]).get("recorders", [])
 	if recs.is_empty():
 		return ""
-	var names := recs.map(func(p): return "%s (%s)" % [_pc_name(), _t("am PC")] if str(p) == LOCAL_ID else _player_name(str(p)))
+	var names := recs.map(func(p): return "%s (%s)" % [_pc_name(), _t("am PC")] if str(p) == _me else _player_name(str(p)))
 	var head := _t("als Nächstes")
 	return head.substr(0, 1).to_upper() + head.substr(1) + ": " + ", ".join(names)
 
@@ -738,7 +828,10 @@ func _banner_local(web: Array) -> String:
 	var who := _pc_name()
 	if web.is_empty():
 		return _t("{} ist dran (am PC)", [who])
-	return _t("{} spricht diese Zeile am PC, {} im Browser", [who, ", ".join(web.map(func(p): return _player_name(str(p))))])
+	var others := ", ".join(web.map(func(p): return _player_name(str(p))))
+	if web.all(_at_pc):
+		return _t("{} spricht diese Zeile am PC, {} an einem anderen PC", [who, others])
+	return _t("{} spricht diese Zeile am PC, {} im Browser", [who, others])
 
 
 ## Eine Zeile ist fertig (Weiter gedrückt): Aufnahme vom PC hochladen, Web-Aufnahmen evtl. dazumischen.
@@ -747,7 +840,7 @@ func _on_game_clip_changed(prev: int) -> void:
 		return
 	var turn := _turn_for(order[prev])
 	var recs: Array = turn.get("recorders", [])
-	if not recs.has(LOCAL_ID) or _uploaded_local.has(prev):
+	if not recs.has(_me) or _uploaded_local.has(prev):
 		return
 	_uploaded_local[prev] = true
 	var inst = dm.performance_array[prev]
@@ -775,7 +868,9 @@ func _send_local_takes() -> void:
 		if p.clip != cur_clip:
 			continue
 		p.sending = true
-		var url := "/api/rooms/%s/dub/takes/%s?player=%s" % [bridge.room_code, str(p.clip).uri_encode(), LOCAL_ID]
+		var url := "/api/rooms/%s/dub/takes/%s" % [bridge.room_code, str(p.clip).uri_encode()]
+		if not member:
+			url += "?player=" + LOCAL_ID   # Mitspieler: der Server kennt ihn an seinem Zugang
 		_http_job(HTTPClient.METHOD_POST, url, ["Content-Type: audio/wav"], p.bytes, _on_local_sent.bind(i), true)
 
 
@@ -800,7 +895,7 @@ func _apply_mix_later() -> void:
 		var all := true
 		var add := []
 		for p in recs:
-			if str(p) == LOCAL_ID:
+			if str(p) == _me:
 				continue
 			if not _line_done_on_server(order[i]):
 				all = false
@@ -1006,7 +1101,11 @@ static func _wav_bytes(s: AudioStreamWAV) -> PackedByteArray:
 
 func _after_finish() -> void:
 	_apply_mix_later()
-	# Alles eingespielt und gemischt: Server darf „gemeinsam anschauen“ freigeben
+	_fill_catchup()
+	# Alles eingespielt und gemischt: Server darf „gemeinsam anschauen“ freigeben (das meldet nur der Host)
+	if member:
+		_done_sent = true
+		_scores_sent = true
 	if not _done_sent and _mix_later.is_empty():
 		_done_sent = true
 		bridge._send({"type": "dub.done"})
@@ -1031,6 +1130,28 @@ func _after_finish() -> void:
 		bridge._send({"type": "dub.scores", "scores": scores})
 
 
+## Mitspieler: beim Dazukommen übersprungene Zeilen mit den Aufnahmen der anderen füllen (sonst Original-Ton).
+func _fill_catchup() -> void:
+	for i in _catchup.keys():
+		var takes := []
+		var waiting := false
+		for t in _dub().get("takes", []):
+			if str(t.get("clipId", "")) != order[i]:
+				continue
+			var pid := str(t.get("playerId", ""))
+			var k := _take_key(order[i], pid)
+			if not _takes.has(k):
+				waiting = true
+				_download_take(order[i], pid, 0, true)
+			elif _takes[k] != null:
+				takes.append(_takes[k])
+		if waiting:
+			continue
+		var inst = dm.performance_array[i]
+		inst.member_audio = _mix_to_clip(takes, i) if not takes.is_empty() else inst.shared_omniclip.clip_audio
+		_catchup.erase(i)
+
+
 ## „Watch“ im Spiel startet das Anschauen für alle.
 func _rewire_watch() -> void:
 	for btn in [dm.btn_watch, dm.get_node_or_null("%TelevisionExpanded/BtnWatch")]:
@@ -1042,6 +1163,9 @@ func _rewire_watch() -> void:
 
 
 func request_watch() -> void:
+	if member:
+		_watch_now()   # gemeinsam starten darf nur die Spielleitung, hier läuft es für diesen PC
+		return
 	if str(_dub().get("phase", "")) == "results":
 		bridge._send({"type": "dub.watch"})
 	else:
@@ -1051,7 +1175,7 @@ func request_watch() -> void:
 func _watch_now() -> void:
 	if not is_instance_valid(dm):
 		return
-	if not dm.performing_finished or _busy or not _mix_later.is_empty():
+	if not dm.performing_finished or _busy or not _mix_later.is_empty() or not _catchup.is_empty():
 		# Letzte Zeile wird noch eingespielt: danach abspielen (der Server wartet normalerweise darauf)
 		_watch_after_finish = true
 		print("Voicigame | Anschauen erst nach der letzten Zeile")
@@ -1088,7 +1212,10 @@ func _check_export() -> void:
 	if test_export_fail:
 		test_export_fail = false
 		url = url.replace("export.mp4", "export-kaputt.mp4")   # nur Tests
-	_export_http.request(url, ["X-Host-Key: " + bridge.host_key])
+	if member:
+		_export_http.request(url + "&t=" + str(bridge.token).uri_encode())
+	else:
+		_export_http.request(url, ["X-Host-Key: " + bridge.host_key])
 
 
 func _on_export_loaded(result: int, code: int, _h: PackedStringArray, _b: PackedByteArray) -> void:
@@ -1147,7 +1274,8 @@ func _finish_leaving() -> void:
 		_send_local_takes()
 		await get_tree().create_timer(0.3).timeout
 	if bridge.has_room() and str(_dub().get("phase", "")) in ["playing", "paused"]:
-		bridge._send({"type": "dub.hub"})
+		# Host: alle zurück in die Lobby. Mitspieler: nur selbst raus, seine Zeilen bekommen die anderen.
+		bridge._send({"type": "dub.spectate", "on": true} if member else {"type": "dub.hub"})
 	queue_free()
 
 
@@ -1291,7 +1419,7 @@ func _build_ui() -> void:
 	btns.add_child(_btn_start)
 	_btn_force = _cv_button(_t("Trotzdem starten"), func(): start_round(true), 260)
 	btns.add_child(_btn_force)
-	btns.add_child(_cv_button(_t("Zurück"), _leave_hub, 200))
+	btns.add_child(_cv_button(_t("Zurück"), _member_back if member else _leave_hub, 200))
 	_hub_status = _label("", 22, false, Color(1.0, 0.85, 0.45))
 	_hub_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	left.add_child(_hub_status)
@@ -1427,9 +1555,10 @@ func _refresh_banner_buttons() -> void:
 	for c in _banner_btns.get_children():
 		c.queue_free()
 	if not _finished:
-		var skip := _small_button(_t("Zeile überspringen"), _skip_line)
-		skip.disabled = cur_clip == "" or _skip_sent == cur_clip
-		_banner_btns.add_child(skip)
+		if not member:   # überspringen darf nur die Spielleitung
+			var skip := _small_button(_t("Zeile überspringen"), _skip_line)
+			skip.disabled = cur_clip == "" or _skip_sent == cur_clip
+			_banner_btns.add_child(skip)
 		_banner_btns.add_child(_small_button(_t("Mitspieler ausblenden") if _people_open else _t("Mitspieler"), _toggle_people))
 		return
 	var ex = d.get("export")
@@ -1440,22 +1569,39 @@ func _refresh_banner_buttons() -> void:
 		_banner_btns.add_child(_small_button(_t("Ordner öffnen"), func(): OS.shell_show_in_file_manager(_export_file)))
 	elif _export_state == "error":
 		_banner_btns.add_child(_small_button(_t("Nochmal versuchen"), request_export))
-	elif st == "queued" or st == "running" or _export_state == "loading":
+	elif st == "queued" or st == "running" or st == "waiting" or _export_state == "loading":
 		pass
+	elif member:
+		if st == "done":   # den Export startet die Spielleitung, fertig laden kann ihn jeder
+			_banner_btns.add_child(_small_button(_t("Video exportieren"), _check_export))
 	else:
 		_banner_btns.add_child(_small_button(_t("Video exportieren"), request_export))
 
 
 ## Zurück zur Dub-Auswahl des Spiels (anderes Pack). Der Raum bleibt offen.
 ## Nicht über „Exit“ des Spiels: das würde Zwischenstände des Packs löschen.
+## Mitspieler: zurück ins Solo/Gruppe-Menü, dort steht wieder der Beitreten-Bildschirm.
 func _leave_hub() -> void:
+	if _leaving or _member_leaving:
+		return
 	var vs = get_node_or_null("/root/VolumeService")
 	if vs:
 		AudioServer.set_bus_mute(vs.BUS_VCLIP, false)
 		AudioServer.set_bus_mute(vs.BUS_PLAYBACK, false)
+	if member:
+		_member_leaving = true
+		get_node(MAIN).return_to_member_menu()
+		return
 	var m = get_node_or_null("/root/M")
 	if m:
 		m.world.return_to_dub_selection()
+
+
+## „Zurück“ in der Dub-Lobby des Mitspielers: nur noch zuschauen.
+func _member_back() -> void:
+	user_left = true
+	bridge._send({"type": "dub.spectate", "on": true})
+	_leave_hub()
 
 
 ## Mitspieler-Liste in der Leiste auf- und zuklappen.
@@ -1482,10 +1628,13 @@ func _refresh_people() -> void:
 		l.custom_minimum_size.x = 214
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_people_box.add_child(l)
-	var web: Array = bridge.web_players()
+	var web: Array = bridge.web_players().filter(func(p): return str(p.get("id", "")) != _me)
 	if web.is_empty():
 		_people_box.add_child(_label(_t("Gerade spielt niemand im Browser mit."), 15, false, Color(0.8, 0.85, 0.9)))
 		return
+	# Mitspieler: abgeben geht nur mit der eigenen, gerade laufenden Zeile; entfernen darf nur der Host
+	var cur = d.get("turn")
+	var mine_now: bool = cur is Dictionary and cur.get("recorders", []).any(func(r): return str(r.get("id", "")) == _me and not r.get("done", false))
 	for p in web:
 		var pid := str(p.get("id", ""))
 		var row := HBoxContainer.new()
@@ -1493,9 +1642,10 @@ func _refresh_people() -> void:
 		var nm := _label(("● " if p.get("connected", false) else "○ ") + str(p.get("name", "?")), 15, false)
 		nm.custom_minimum_size.x = 84
 		row.add_child(nm)
-		if p.get("connected", false):
+		if p.get("connected", false) and (not member or mine_now):
 			row.add_child(_small_button(_t("Zeile geben"), _give_line.bind(pid)))
-		row.add_child(_small_button(_t("Wirklich?") if _kick_armed == pid else _t("Entfernen"), _on_kick.bind(pid)))
+		if not member:
+			row.add_child(_small_button(_t("Wirklich?") if _kick_armed == pid else _t("Entfernen"), _on_kick.bind(pid)))
 		_people_box.add_child(row)
 
 
@@ -1534,7 +1684,7 @@ func _skip_line() -> void:
 
 ## on: nehmen oder freigeben. Doppelt geklickt schickt zweimal dasselbe, statt hin und her zu schalten.
 func _claim_local(character: String, on := true) -> void:
-	bridge._send({"type": "dub.claim", "character": character, "playerId": LOCAL_ID, "on": on})
+	bridge._send({"type": "dub.claim", "character": character, "playerId": _me, "on": on})
 
 
 func _refresh() -> void:
@@ -1548,6 +1698,8 @@ func _refresh() -> void:
 	var video = d.get("video")
 	var vs := str(video.get("status", "")) if video is Dictionary else ""
 	match _upload_state:
+		"local":
+			_hub_upload.text = _t("Das Pack bleibt auf diesem PC, alle Mitspieler haben es schon.")
 		"wait_hub":
 			_hub_upload.text = _t("Die vorige Runde wird beendet …")
 		"uploading":
@@ -1557,7 +1709,9 @@ func _refresh() -> void:
 		"commit":
 			_hub_upload.text = _t("Pack wird eingelesen …")
 		"done":
-			if vs == "converting" or vs == "checking":
+			if member:
+				_hub_upload.text = ""
+			elif vs == "converting" or vs == "checking":
 				_hub_upload.text = _t("Video wird für die Browser umgewandelt: {} %", [int(float(video.get("pct", 0)) * 100.0)])
 			elif vs == "original":
 				_hub_upload.text = _t("Das Video läuft nur in manchen Browsern (auf dem Server fehlt ffmpeg).")
@@ -1574,7 +1728,7 @@ func _refresh() -> void:
 		var info: Dictionary = infos.get(pid, {})
 		var tag := ""
 		var col := Color(0.8, 0.85, 0.9)
-		if str(p.get("kind", "")) == "local":
+		if str(p.get("kind", "")) == "local" or (p.get("game", false) and not info.get("spectator", false)):
 			tag = _t("am PC")
 		elif not p.get("connected", false):
 			tag = _t("getrennt")
@@ -1591,7 +1745,7 @@ func _refresh() -> void:
 		var line := HBoxContainer.new()
 		line.add_theme_constant_override("separation", 12)
 		line.add_child(_label("● %s · %s" % [str(p.get("name", "?")), tag], 22, false, col))   # Knopf direkt dahinter
-		if str(p.get("kind", "")) == "phone":
+		if str(p.get("kind", "")) == "phone" and not member:
 			var armed := _kick_armed == pid
 			var kb := _small_button(_t("Wirklich?") if armed else _t("Entfernen"), _on_kick.bind(pid))
 			kb.focus_mode = Control.FOCUS_NONE
@@ -1623,7 +1777,7 @@ func _refresh() -> void:
 			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			l.clip_text = true
 			row.add_child(l)
-			if host_plays and (owner == null or str(owner) == LOCAL_ID):
+			if host_plays and (owner == null or str(owner) == _me):
 				var cname := str(c.get("name", ""))
 				row.add_child(_small_button(_t("Freigeben") if owner else _t("Ich am PC"), _claim_local.bind(cname, owner == null)))
 			_chars_box.add_child(row)
@@ -1642,7 +1796,11 @@ func _refresh() -> void:
 	var ok: bool = cs is Dictionary and cs.get("ok", false)
 	if _btn_start.has_method("enable"):
 		_btn_start.enable(ok)
-	_btn_force.visible = reason == "loading"
+	# Mitspieler: starten und einstellen macht der Host
+	_btn_start.visible = not member
+	_chrono.disabled = member
+	_waves.disabled = member
+	_btn_force.visible = reason == "loading" and not member
 	_hub_status.text = "" if ok else {
 		"no_pack": _t("Das Pack wird noch hochgeladen."),
 		"no_players": _t("Es spielt noch niemand mit."),
@@ -1650,14 +1808,19 @@ func _refresh() -> void:
 		"video_loading": _t("Das Video wird noch vorbereitet."),
 		"pack_loading": _t("Die erste Zeile wird noch hochgeladen."),
 	}.get(reason, "")
+	if member and ok:
+		_hub_status.text = _t("Warte, bis die Spielleitung die Runde startet.")
 	_refresh_people()
-	_check_export()
+	if not member:
+		_check_export()   # Host: fertiges Video gleich holen
 	if _finished:
 		var ex = d.get("export")
 		var st := str(ex.get("status", "")) if ex is Dictionary else ""
 		var text := _t("Fertig! „Watch“ startet das Video auf allen Geräten gleichzeitig.")
 		if st == "queued" or st == "running":
 			text = _t("Video wird erstellt: {} %", [int(float(ex.get("pct", 0)) * 100.0)])
+		elif st == "waiting":
+			text = _t("Für das Video wird das Pack hochgeladen: {} %", [int(100.0 * _up_done / maxf(1.0, _up_total))])
 		elif _export_state == "loading":
 			text = _t("Video wird heruntergeladen …")
 		elif _export_state == "done":

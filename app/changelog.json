@@ -1,5 +1,13 @@
 [
   {
+    "build": 47,
+    "date": "2026-09-22",
+    "changes": [
+      "Voicigame 0.9.0: players who join from their own game now play dub rounds in their own game, with their own copy of the pack (or it downloads once).",
+      "Voicigame: the pack only goes up to the server when somebody needs it."
+    ]
+  },
+  {
     "build": 46,
     "date": "2026-09-22",
     "changes": [
