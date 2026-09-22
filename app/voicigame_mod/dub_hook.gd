@@ -362,6 +362,15 @@ func _on_upload_reply(code: int, body: PackedByteArray, sent: int) -> void:
 	_up_note = ""
 	if not _up_began:
 		_up_began = true
+		var j = JSON.parse_string(body.get_string_from_utf8())
+		if j is Dictionary and j.get("have", false):
+			# Der Server kennt dieses Pack schon (gleiche Dateien): nichts hochladen, nichts umwandeln
+			_upload_state = "done"
+			bridge.set_meta("dub_pack_key", _pack_key)
+			print("Voicigame | Pack liegt schon auf dem Server")
+			pack_uploaded.emit()
+			_refresh()
+			return
 	else:
 		_up_offset += sent
 		_up_done += sent
