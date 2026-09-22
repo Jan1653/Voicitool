@@ -849,8 +849,14 @@ func _run_inject(stream: AudioStream, then_next: bool) -> void:
 		_inj_player.play(0.0)
 	ms.recording_started.connect(_inject_start, CONNECT_ONE_SHOT)
 	var aim = dm.audio_interface_manager
+	# „Stop Recording“ sperren: sonst schneidet ein Klick die Aufnahme vom Handy ab
+	var stop_btn = dm.get("btn_stop_record")
+	if stop_btn and stop_btn.has_method("enable"):
+		stop_btn.enable(false)
 	dm._enact()
 	await aim.idled
+	if is_instance_valid(stop_btn) and stop_btn.has_method("enable"):
+		stop_btn.enable(true)   # für die eigenen Aufnahmen am PC wieder frei
 	_restore_mic()
 	await get_tree().process_frame
 	await get_tree().process_frame
