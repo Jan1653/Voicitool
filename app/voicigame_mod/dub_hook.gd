@@ -14,6 +14,7 @@ extends Node
 const WavUtil = preload("wav_util.gd")
 const I18n = preload("i18n.gd")
 const Players = preload("players.gd")
+const UI = preload("ui.gd")
 const LOCAL_ID := "local-1"
 const CHUNK := 2 * 1024 * 1024      # Pack in Stücken: klein genug für langsame Leitungen (2 MB in 120 s = 0,14 Mbit/s)
 const UPLOAD_TRIES := 6             # so oft wird ein Stück nochmal versucht, mit wachsender Pause
@@ -717,6 +718,21 @@ func _line_done_on_server(clip_id: String) -> bool:
 	return false
 
 
+## Wer die Zeile nach der aktuellen spricht, als zweite Zeile der Leiste („als Nächstes: …“).
+func _next_text() -> String:
+	if _finished or not is_instance_valid(dm):
+		return ""
+	var i: int = dm.clip_index + 1
+	if i <= 0 or i >= order.size():
+		return ""
+	var recs: Array = _turn_for(order[i]).get("recorders", [])
+	if recs.is_empty():
+		return ""
+	var names := recs.map(func(p): return "%s (%s)" % [_pc_name(), _t("am PC")] if str(p) == LOCAL_ID else _player_name(str(p)))
+	var head := _t("als Nächstes")
+	return head.substr(0, 1).to_upper() + head.substr(1) + ": " + ", ".join(names)
+
+
 func _banner_local(web: Array) -> String:
 	var who := _pc_name()
 	if web.is_empty():
@@ -1223,6 +1239,9 @@ func _build_ui() -> void:
 	code_col.add_child(_code)
 	var link := _label(bridge.join_url.replace("https://", "").replace("http://", ""), 20, false, Color(0.44, 0.86, 1.0))
 	code_col.add_child(link)
+	var copy := UI.copy_button(_t("Link kopieren"), _t("Link kopiert"), func(): return bridge.join_url)
+	copy.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	code_col.add_child(copy)
 	_chrono = CheckBox.new()
 	_chrono.text = _t("Der Reihe nach (ohne Figuren)")
 	_chrono.add_theme_font_size_override("font_size", 22)
@@ -1351,6 +1370,9 @@ func _unblock_game() -> void:
 
 
 func _set_banner(text: String) -> void:
+	var nxt := _next_text()
+	if text != "" and nxt != "":
+		text += "\n\n" + nxt
 	if _banner_text.text != text:
 		_banner_text.text = text
 	_banner.visible = _started and text != "" and not _hub.visible   # Lobby-Einblendung hat Vorrang

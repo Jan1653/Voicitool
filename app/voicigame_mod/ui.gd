@@ -22,7 +22,21 @@ static func small_button(text: String, cb: Callable, warn := false) -> Button:
 	if warn:
 		for state in ["font_color", "font_hover_color", "font_pressed_color"]:
 			b.add_theme_color_override(state, Color(1.0, 0.45, 0.45))
-	b.pressed.connect(cb)
+	if cb.is_valid():
+		b.pressed.connect(cb)
+	return b
+
+
+## Kleiner Knopf, der get_text() in die Zwischenablage legt und kurz „Link kopiert“ zeigt.
+static func copy_button(text: String, done: String, get_text: Callable) -> Button:
+	var b := small_button(text, Callable())
+	b.pressed.connect(func():
+		var t := str(get_text.call())
+		if t == "":
+			return
+		DisplayServer.clipboard_set(t)
+		b.text = done
+		b.get_tree().create_timer(2.0).timeout.connect(func(): if is_instance_valid(b): b.text = text))
 	return b
 
 

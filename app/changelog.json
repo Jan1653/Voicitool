@@ -1,5 +1,12 @@
 [
   {
+    "build": 44,
+    "date": "2026-09-22",
+    "changes": [
+      "Voicigame 0.7.0: copy the room link in the game, going back from the dub pack list keeps the lobby open, the dub bar shows who is up next."
+    ]
+  },
+  {
     "build": 43,
     "date": "2026-09-22",
     "changes": [

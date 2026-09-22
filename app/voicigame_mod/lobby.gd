@@ -135,6 +135,9 @@ func _show_host() -> void:
 	left.add_child(_qr)
 	_link = UI.label("", 18, false, UI.ACCENT)
 	left.add_child(_link)
+	var copy := UI.copy_button(tr_("Link kopieren"), tr_("Link kopiert"), func(): return bridge.join_url)
+	copy.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	left.add_child(copy)
 
 	# Rechts: Spielerliste und Knöpfe
 	var right := VBoxContainer.new()

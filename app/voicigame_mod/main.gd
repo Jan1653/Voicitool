@@ -11,7 +11,7 @@ extends Node
 ##   Gameshow               show_hook.gd legt die Handy-Aufnahmen in die Aufnahme des Spiels
 ##   Synchronisieren        dub_hook.gd: Pack im Spiel wählen, Web-Spieler sprechen ihre Figuren im Browser
 
-const VERSION := "0.6.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
+const VERSION := "0.7.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
 const CONFIG_PATH := "user://voicigame.cfg"
 const MEMBER_SCENE := "res://scenes/nav_specific/play_flow/select_member_count.tscn"
 const DUB_SELECT_SCENE := "res://scenes/nav_specific/clip_selector_menus/clip_selection_dub.tscn"
@@ -93,6 +93,8 @@ func _on_node_added(node: Node) -> void:
 	if node.scene_file_path == MEMBER_SCENE:
 		# Nicht hier zurücksetzen: das Spiel lädt dieses Menü auch zwischendurch (etwa zwischen zwei Dub-Runden)
 		node.ready.connect(_add_tile.bind(node), CONNECT_ONE_SHOT)
+		if _dub_active and bridge.has_room():
+			node.ready.connect(_back_from_dub.bind(node), CONNECT_ONE_SHOT)
 	elif node.scene_file_path in OTHER_PLAY_SCENES:
 		_dub_active = false   # ein späteres Solo-Dub gehört nicht mehr zur Voicigame-Runde
 	elif node.scene_file_path == DUB_SCENE and _dub_active and bridge.has_room():
@@ -214,6 +216,22 @@ func _start_dub(host_plays: bool) -> void:
 	metro.clip_selection_page_back_path = MEMBER_SCENE
 	_lobby.queue_free()
 	_menu.call_slide(DUB_SELECT_SCENE, false)
+
+
+## Aus der Dub-Auswahl mit „Zurück“ im Solo/Gruppe-Menü gelandet: Lobby wieder öffnen, der Raum bleibt offen.
+## Kurz warten und nachsehen, ob das Menü wirklich bleibt (das Spiel lädt es auch nur zwischendurch).
+func _back_from_dub(menu: Node) -> void:
+	await get_tree().create_timer(1.0).timeout
+	if not _dub_active or not bridge.has_room() or is_instance_valid(_lobby) or is_instance_valid(_join):
+		return
+	if not is_instance_valid(menu) or not menu.is_inside_tree() or menu.is_queued_for_deletion():
+		return
+	for n in get_tree().root.find_children("*", "", true, false):
+		if n.scene_file_path in [DUB_SELECT_SCENE, DUB_SCENE] and not n.is_queued_for_deletion():
+			return
+	_dub_active = false
+	bridge._send({"type": "dub.close"})   # Handys zurück in die normale Lobby
+	_open_lobby(menu)
 
 
 func _attach_dub(dub_scene: Node) -> void:
