@@ -11,7 +11,7 @@ extends Node
 ##   Gameshow               show_hook.gd legt die Handy-Aufnahmen in die Aufnahme des Spiels
 ##   Synchronisieren        dub_hook.gd: Pack im Spiel wählen, Web-Spieler sprechen ihre Figuren im Browser
 
-const VERSION := "0.5.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
+const VERSION := "0.6.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
 const CONFIG_PATH := "user://voicigame.cfg"
 const MEMBER_SCENE := "res://scenes/nav_specific/play_flow/select_member_count.tscn"
 const DUB_SELECT_SCENE := "res://scenes/nav_specific/clip_selector_menus/clip_selection_dub.tscn"
@@ -49,6 +49,7 @@ func _ready() -> void:
 	bridge = Bridge.new()
 	bridge.name = "Bridge"
 	bridge.server_url = _load_server_url()
+	bridge.mod_version = VERSION
 	add_child(bridge)
 	var stream := Stream.new()
 	stream.name = "Stream"
@@ -231,7 +232,7 @@ func _open_join() -> void:
 	_join = JoinScreen.new()
 	_join.name = "VoicigameJoin"
 	get_tree().root.add_child(_join)
-	_join.setup(bridge.server_url)
+	_join.setup(bridge.server_url, VERSION)
 
 
 func _start_session(host_plays: bool) -> void:

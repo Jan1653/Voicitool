@@ -63,11 +63,12 @@ static func _dbg(msg: String) -> void:
 		print("Voicigame | Beitreten: " + msg)
 
 
-func setup(server_url: String) -> void:
+func setup(server_url: String, mod_version: String = "") -> void:
 	layer = 90
 	client = JoinClient.new()
 	client.name = "JoinClient"
 	client.server_url = server_url
+	client.mod_version = mod_version
 	add_child(client)
 	client.joined.connect(func(_id): _show_room())
 	client.state_changed.connect(func(_s): _refresh())

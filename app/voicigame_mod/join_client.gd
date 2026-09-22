@@ -16,10 +16,12 @@ signal upload_done(round_id: String, ok: bool, message: String)
 signal live_frame(data: PackedByteArray)   # Live-Bild/Ton vom Host, Format siehe server/src/stream.js
 
 const WavUtil = preload("wav_util.gd")
+const Bridge = preload("bridge.gd")
 const CONFIG := "user://voicigame.cfg"
 const BUS := "VoicigameJoin"
 
 var server_url := ""
+var mod_version := ""            # für die Nutzungsstatistik des Servers, setzt join_screen.gd
 var code := ""
 var player_name := ""
 var token := ""
@@ -127,7 +129,9 @@ func _process(_delta: float) -> void:
 		WebSocketPeer.STATE_OPEN:
 			if not connected:
 				connected = true
-				_send({"type": "hello", "role": "phone", "code": code, "name": player_name, "token": token if token != "" else null})
+				var hello := {"type": "hello", "role": "phone", "code": code, "name": player_name, "token": token if token != "" else null}
+				hello.merge(Bridge.client_info(mod_version))
+				_send(hello)
 				if _watch:
 					_send({"type": "watch", "on": true})
 				connection_changed.emit(true)

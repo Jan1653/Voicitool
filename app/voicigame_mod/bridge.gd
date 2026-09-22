@@ -19,6 +19,7 @@ const I18n = preload("i18n.gd")
 const DEFAULT_SERVER := "https://voicigame.duckdns.org"
 
 var server_url := DEFAULT_SERVER
+var mod_version := ""          # setzt main.gd, geht in die Nutzungsstatistik des Servers
 var room_code := ""
 var host_key := ""
 var join_url := ""
@@ -40,6 +41,17 @@ func _init() -> void:
 	_http.timeout = 60.0
 	_http.request_completed.connect(_on_http_done)
 	add_child(_http)
+
+
+## Grobe Angaben für die Nutzungsstatistik des Servers: Mod-Version, Version des Spiels
+## und Betriebssystem. Keine Namen, keine Adressen, der Server zählt nur Tagessummen.
+static func client_info(version: String) -> Dictionary:
+	return {
+		"client": "game",
+		"version": version,
+		"game": str(ProjectSettings.get_setting("application/config/version", "")),
+		"os": OS.get_name(),
+	}
 
 
 func has_room() -> bool:
@@ -193,7 +205,9 @@ func _process(_delta: float) -> void:
 		WebSocketPeer.STATE_OPEN:
 			if not connected:
 				connected = true
-				_ws.send_text(JSON.stringify({"type": "hello", "role": "host", "code": room_code, "key": host_key}))
+				var hello := {"type": "hello", "role": "host", "code": room_code, "key": host_key}
+				hello.merge(client_info(mod_version))
+				_ws.send_text(JSON.stringify(hello))
 				for m in _pending:
 					_ws.send_text(m)
 				_pending.clear()

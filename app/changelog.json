@@ -1,5 +1,12 @@
 [
   {
+    "build": 43,
+    "date": "2026-09-22",
+    "changes": [
+      "Voicigame 0.6.0: dub rounds from the game start right away while the pack loads, lines can be handed to someone else, and people can join or be removed during a round."
+    ]
+  },
+  {
     "build": 42,
     "date": "2026-09-22",
     "changes": [

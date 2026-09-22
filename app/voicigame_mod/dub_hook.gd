@@ -45,6 +45,7 @@ var _files: Array = []           # [{name, path, size}]
 var _up_index := 0
 var _up_offset := 0
 var _up_total := 0
+var _plan := {}                  # Ankündigung für den Server: alle Dateien und die Reihenfolge
 var _up_done := 0
 var _upload_state := ""          # "" | wait_hub | uploading | commit | done | error
 var _up_began := false
@@ -101,6 +102,8 @@ var _hub: Control
 var _banner: PanelContainer
 var _banner_text: Label
 var _banner_btns: VBoxContainer
+var _people_box: VBoxContainer   # Mitspieler während der Runde: entfernen, Zeile abgeben
+var _people_open := false
 var _hub_title: Label
 var _hub_upload: Label
 var _hub_status: Label
@@ -238,8 +241,27 @@ func _start_upload() -> void:
 		var size := FileAccess.open(dir + f, FileAccess.READ).get_length() if FileAccess.file_exists(dir + f) else 0
 		_files.append({"name": f, "path": dir + f, "size": size})
 		_up_total += size
-	# Kleine Dateien zuerst, das Video zuletzt
-	_files.sort_custom(func(a, b): return a["size"] < b["size"])
+	# Reihenfolge, damit im Browser so früh wie möglich gespielt werden kann:
+	#   1. Beschreibungen und gemeinsame Bilder (winzig, daraus entstehen alle Zeilen)
+	#   2. das Video (das Umwandeln dauert am längsten und läuft schon, während der Rest kommt)
+	#   3. die Zeilen in Spielreihenfolge, jede mit ihrem Bild
+	var play: Array = order + use_as_is
+	var rank := {}
+	for f in _files:
+		var fname: String = f["name"]
+		var base := fname.get_basename()
+		var ext := fname.get_extension().to_lower()
+		var pos: int = play.find(base)
+		var media := ext in ["ogg", "wav", "mp3", "flac", "m4a", "opus", "aac", "ogv", "mp4", "webm", "mkv", "mov"]
+		if ext in ["ini", "txt", "cfg"] or (pos < 0 and not media):
+			rank[fname] = 0
+		elif base.to_lower() == "dub_video":
+			rank[fname] = 1
+		elif pos >= 0:
+			rank[fname] = 2 + pos
+		else:
+			rank[fname] = 2 + play.size()
+	_files.sort_custom(func(a, b): return rank[a["name"]] < rank[b["name"]])
 	var key := "%s|%d|%d" % [dir, _files.size(), _up_total]
 	var d := _dub()
 	var have_pack = d.get("packStatus", {}).get("status", "") == "ready" if d.get("packStatus") is Dictionary else false
@@ -248,6 +270,14 @@ func _start_upload() -> void:
 		_commit(true)
 		return
 	bridge.set_meta("dub_pack_key", key)
+	# Der Server kennt damit von Anfang an alle Zeilen und kann freigeben, was schon da ist
+	var res = dm.resource
+	var plan_files := []
+	for f in _files:
+		plan_files.append({"name": f["name"], "size": f["size"]})
+	_plan = {"stream": true, "files": plan_files, "order": play, "useAsIs": use_as_is,
+		"title": str(res.pack_info.display_name), "folder": str(res.pack_info.folder_name).trim_suffix("/"),
+		"durations": _durations()}
 	_upload_state = "uploading"
 	_up_began = false
 	_up_index = 0
@@ -263,7 +293,8 @@ func _upload_step() -> void:
 	if _leaving or not is_instance_valid(dm) or _upload_state != "uploading":
 		return
 	if not _up_began:
-		_http_job(HTTPClient.METHOD_POST, "/api/rooms/%s/dub/pack/begin" % bridge.room_code, [], PackedByteArray(), _on_upload_reply.bind(0))
+		_http_job(HTTPClient.METHOD_POST, "/api/rooms/%s/dub/pack/begin" % bridge.room_code,
+			["Content-Type: application/json"], JSON.stringify(_plan).to_utf8_buffer(), _on_upload_reply.bind(0))
 		return
 	if _up_index >= _files.size():
 		_upload_state = "commit"
@@ -327,14 +358,19 @@ func _upload_retry(code: int, body: PackedByteArray) -> void:
 	get_tree().create_timer(wait).timeout.connect(_upload_step)
 
 
-func _commit(reuse: bool) -> void:
-	var durations := []
+## Längen der Zeilen, damit der Server sie schon kennt, bevor die Dateien da sind.
+func _durations() -> Array:
+	var out := []
 	for inst in dm.performance_array:
 		var a = inst.shared_omniclip.clip_audio
-		durations.append({"id": str(inst.shared_omniclip.file_name_agnostic), "duration": a.get_length() if a else 0.0})
+		out.append({"id": str(inst.shared_omniclip.file_name_agnostic), "duration": a.get_length() if a else 0.0})
+	return out
+
+
+func _commit(reuse: bool) -> void:
 	var res = dm.resource
 	var body := {"order": order + use_as_is, "useAsIs": use_as_is, "title": str(res.pack_info.display_name),
-		"folder": str(res.pack_info.folder_name).trim_suffix("/"), "durations": durations, "reuse": reuse}
+		"folder": str(res.pack_info.folder_name).trim_suffix("/"), "durations": _durations(), "reuse": reuse}
 	_http_job(HTTPClient.METHOD_POST, "/api/rooms/%s/dub/pack/commit" % bridge.room_code, ["Content-Type: application/json"],
 		JSON.stringify(body).to_utf8_buffer(), _on_commit_done.bind(reuse))
 
@@ -577,7 +613,7 @@ func _process(_delta: float) -> void:
 			_ask_hub()
 		return
 	if not _started:
-		if phase in ["playing", "paused"] and _upload_state == "done":
+		if phase in ["playing", "paused"] and _upload_state in ["uploading", "commit", "done"]:
 			_begin()
 		return
 	_fetch_known_takes()
@@ -1260,6 +1296,10 @@ func _build_ui() -> void:
 	_banner_btns = VBoxContainer.new()
 	_banner_btns.add_theme_constant_override("separation", 6)
 	brow.add_child(_banner_btns)
+	_people_box = VBoxContainer.new()
+	_people_box.add_theme_constant_override("separation", 6)
+	_people_box.hide()
+	brow.add_child(_people_box)
 	_banner.hide()
 
 
@@ -1331,6 +1371,7 @@ func _refresh_banner_buttons() -> void:
 		var skip := _small_button(_t("Zeile überspringen"), _skip_line)
 		skip.disabled = cur_clip == "" or _skip_sent == cur_clip
 		_banner_btns.add_child(skip)
+		_banner_btns.add_child(_small_button(_t("Mitspieler ausblenden") if _people_open else _t("Mitspieler"), _toggle_people))
 		return
 	var ex = d.get("export")
 	var st := str(ex.get("status", "")) if ex is Dictionary else ""
@@ -1356,6 +1397,52 @@ func _leave_hub() -> void:
 	var m = get_node_or_null("/root/M")
 	if m:
 		m.world.return_to_dub_selection()
+
+
+## Mitspieler-Liste in der Leiste auf- und zuklappen.
+func _toggle_people() -> void:
+	_people_open = not _people_open
+	_last_sig = ""
+	_refresh_people()
+	_refresh_banner_buttons()
+
+
+## Während der Runde: wer mitspielt, entfernen und Zeilen abgeben.
+func _refresh_people() -> void:
+	if not is_instance_valid(_people_box):
+		return
+	_people_box.visible = _people_open and _started and not _finished
+	for c in _people_box.get_children():
+		c.queue_free()
+	if not _people_box.visible:
+		return
+	var d := _dub()
+	var offer = d.get("offer")
+	if offer is Dictionary:
+		var l := _label(_t("{} hat {} eine Zeile angeboten.", [str(offer.get("fromName", "")), str(offer.get("toName", ""))]), 15, false, Color(1.0, 0.82, 0.45))
+		l.custom_minimum_size.x = 214
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_people_box.add_child(l)
+	var web: Array = bridge.web_players()
+	if web.is_empty():
+		_people_box.add_child(_label(_t("Gerade spielt niemand im Browser mit."), 15, false, Color(0.8, 0.85, 0.9)))
+		return
+	for p in web:
+		var pid := str(p.get("id", ""))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var nm := _label(("● " if p.get("connected", false) else "○ ") + str(p.get("name", "?")), 15, false)
+		nm.custom_minimum_size.x = 84
+		row.add_child(nm)
+		if p.get("connected", false):
+			row.add_child(_small_button(_t("Zeile geben"), _give_line.bind(pid)))
+		row.add_child(_small_button(_t("Wirklich?") if _kick_armed == pid else _t("Entfernen"), _on_kick.bind(pid)))
+		_people_box.add_child(row)
+
+
+## Die laufende Zeile dieser Person anbieten. Sie muss sie annehmen.
+func _give_line(pid: String) -> void:
+	bridge._send({"type": "dub.offer", "to": pid})
 
 
 ## Spieler entfernen: erster Klick fragt nach, zweiter entfernt. Nach 4 s ohne zweiten Klick zurück.
@@ -1467,7 +1554,9 @@ func _refresh() -> void:
 			row.add_theme_constant_override("separation", 12)
 			var owner = c.get("claimedBy")
 			var who := _player_name(str(owner)) if owner else _t("frei")
-			var l := _label("%s · %s" % [str(c.get("name", "")), who], 22, false, Color.WHITE if owner else Color(0.7, 0.75, 0.8))
+			var n := int(c.get("lines", 0))
+			var lines := _t("1 Zeile") if n == 1 else _t("{} Zeilen", [n])
+			var l := _label("%s · %s · %s" % [str(c.get("name", "")), lines, who], 22, false, Color.WHITE if owner else Color(0.7, 0.75, 0.8))
 			l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			l.clip_text = true
 			row.add_child(l)
@@ -1486,15 +1575,19 @@ func _refresh() -> void:
 	# Start
 	var cs = d.get("canStart")
 	var reason := str(cs.get("reason", "")) if cs is Dictionary else ""
-	var ok: bool = cs is Dictionary and cs.get("ok", false) and _upload_state == "done"
+	# Starten geht, sobald der Server es erlaubt: der Rest des Packs kommt während des Spiels nach
+	var ok: bool = cs is Dictionary and cs.get("ok", false)
 	if _btn_start.has_method("enable"):
 		_btn_start.enable(ok)
-	_btn_force.visible = reason == "loading" and _upload_state == "done"
+	_btn_force.visible = reason == "loading"
 	_hub_status.text = "" if ok else {
 		"no_pack": _t("Das Pack wird noch hochgeladen."),
 		"no_players": _t("Es spielt noch niemand mit."),
 		"loading": _t("Noch nicht alle haben das Pack geladen."),
+		"video_loading": _t("Das Video wird noch vorbereitet."),
+		"pack_loading": _t("Die erste Zeile wird noch hochgeladen."),
 	}.get(reason, "")
+	_refresh_people()
 	_check_export()
 	if _finished:
 		var ex = d.get("export")

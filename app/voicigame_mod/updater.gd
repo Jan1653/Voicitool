@@ -29,7 +29,8 @@ func start(url: String, dir: String, version: String) -> void:
 	_http.timeout = 30.0
 	add_child(_http)
 	_http.request_completed.connect(_on_manifest, CONNECT_ONE_SHOT)
-	_http.request(server_url + "/api/mod")
+	# Version und System mitschicken: der Server zählt daraus, welche Mod-Versionen unterwegs sind
+	_http.request(server_url + "/api/mod?v=%s&os=%s" % [local_version.uri_encode(), OS.get_name().uri_encode()])
 
 
 func _allowed() -> bool:
