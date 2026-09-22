@@ -113,6 +113,7 @@ var _chars_box: VBoxContainer
 var _chat_box: VBoxContainer
 var _chat_input: LineEdit
 var _chrono: CheckBox
+var _waves: OptionButton
 var _btn_start: Control
 var _btn_force: Control
 var _code: Label
@@ -684,7 +685,7 @@ func _process(_delta: float) -> void:
 	_block(true, _t("Aufnahme von {}", [names]))
 	if takes.is_empty():
 		_skipped[i] = true   # am Ende wie im Steam-Mod mit dem Original-Ton
-	_run_inject(_mix_to_clip(takes, i), true)
+	_run_inject(_mix_to_clip(takes, i), true, str(d.get("waves", "host")) == "off")
 
 
 func _turn_for(clip_id: String) -> Dictionary:
@@ -829,12 +830,16 @@ func _apply_mix_later() -> void:
 ## in den Kanal des Mikrofons. Wellenform, Wertung und Speichern macht das Spiel selbst.
 ## Das Mikrofon des Spiels läuft dabei weiter und ist nur stumm: Es zu stoppen und neu zu starten
 ## kann den Windows-Audiotreiber (WASAPI) aufhängen.
-func _run_inject(stream: AudioStream, then_next: bool) -> void:
+## hide_take: Wellenform der Aufnahme dabei nicht zeigen (Einstellung „Wellenformen der Mitspieler: Aus“).
+func _run_inject(stream: AudioStream, then_next: bool, hide_take := false) -> void:
 	_busy = true
 	var ms = get_node_or_null("/root/MicrophoneService")
 	if ms == null:
 		_busy = false
 		return
+	var hidden := _take_drawers() if hide_take else []
+	for dr in hidden:
+		dr.visible = false
 	var player: AudioStreamPlayer = ms.player
 	if not is_instance_valid(_inj_player):
 		_inj_player = AudioStreamPlayer.new()
@@ -868,7 +873,20 @@ func _run_inject(stream: AudioStream, then_next: bool) -> void:
 		while is_instance_valid(dm) and dm.clip_index == before and not dm.performing_finished and waited < 10.0:
 			await get_tree().process_frame
 			waited += get_process_delta_time()
+	for dr in hidden:
+		if is_instance_valid(dr):
+			dr.visible = true
 	_busy = false
+
+
+## Zeichenflächen des Spiels, die die Aufnahme zeigen (nicht den Clip): sie lesen aus der Mikrofon-Auswertung.
+func _take_drawers() -> Array:
+	var aim = dm.audio_interface_manager
+	var agg = aim.get("spectrum_aggregate_plmic")
+	var box = aim.get("waveform_drawers_container")
+	if agg == null or not box is Node:
+		return []
+	return box.get_children().filter(func(c): return c is CanvasItem and c.get("aggregate_data_node") == agg)
 
 
 ## Die Dub-Szene spielt im Leerlauf ein Rausch-Video mit Ton. Unter der Lobby (Pack hochladen, warten) stört das:
@@ -1253,6 +1271,19 @@ func _build_ui() -> void:
 	_chrono.add_theme_font_size_override("font_size", 22)
 	_chrono.toggled.connect(func(on): bridge._send({"type": "dub.settings", "chrono": on}))
 	left.add_child(_chrono)
+	# Wer sieht die Wellenform fremder Aufnahmen: nur das Spiel hier (so läuft die Aufnahme durchs Spiel), alle oder niemand
+	var waves_row := HBoxContainer.new()
+	waves_row.add_theme_constant_override("separation", 12)
+	waves_row.add_child(_label(_t("Wellenformen der Mitspieler"), 20, false, Color(0.8, 0.85, 0.9)))
+	_waves = OptionButton.new()
+	_waves.add_theme_font_size_override("font_size", 18)
+	_waves.get_popup().add_theme_font_size_override("font_size", 18)
+	for w in [["host", _t("Nur am PC")], ["all", _t("Für alle")], ["off", _t("Aus")]]:
+		_waves.add_item(w[1])
+		_waves.set_item_metadata(_waves.item_count - 1, w[0])
+	_waves.item_selected.connect(func(i): bridge._send({"type": "dub.settings", "waves": str(_waves.get_item_metadata(i))}))
+	waves_row.add_child(_waves)
+	left.add_child(waves_row)
 	var btns := HBoxContainer.new()
 	btns.add_theme_constant_override("separation", 18)
 	left.add_child(btns)
@@ -1574,6 +1605,10 @@ func _refresh() -> void:
 	var chrono: bool = d.get("chrono", false)
 	if _chrono.button_pressed != chrono:
 		_chrono.set_pressed_no_signal(chrono)
+	var waves := str(d.get("waves", "host"))
+	for i in _waves.item_count:
+		if str(_waves.get_item_metadata(i)) == waves and _waves.selected != i:
+			_waves.select(i)   # select() löst item_selected nicht aus
 	if chrono:
 		_chars_box.add_child(_label(_t("Alle Zeilen kommen nacheinander, ihr wechselt euch ab."), 20, false, Color(0.8, 0.85, 0.9)))
 	else:

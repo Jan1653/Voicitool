@@ -1,5 +1,12 @@
 [
   {
+    "build": 46,
+    "date": "2026-09-22",
+    "changes": [
+      "Voicigame 0.8.0: in dub mode you choose who sees the other players' waveforms: only the PC, everyone, or nobody."
+    ]
+  },
+  {
     "build": 45,
     "date": "2026-09-22",
     "changes": [
