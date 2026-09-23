@@ -12,7 +12,7 @@ extends Node
 ##   Synchronisieren        dub_hook.gd: Pack im Spiel wählen, Web-Spieler sprechen ihre Figuren im Browser
 ##   Mitspielen (Dub)       PCs mit Mod, die beitreten, spielen im eigenen Spiel mit dem eigenen Pack (dub_pack.gd)
 
-const VERSION := "1.1.1"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
+const VERSION := "1.2.0"   # bei jeder Mod-Änderung erhöhen (Voicitool zeigt sie an): Fehler 0.2.x, Neues 0.x.0
 const CONFIG_PATH := "user://voicigame.cfg"
 const MEMBER_SCENE := "res://scenes/nav_specific/play_flow/select_member_count.tscn"
 const DUB_SELECT_SCENE := "res://scenes/nav_specific/clip_selector_menus/clip_selection_dub.tscn"
@@ -32,6 +32,7 @@ const JoinScreen = preload("join_screen.gd")
 const I18n = preload("i18n.gd")
 const Stream = preload("stream.gd")
 const DubHook = preload("dub_hook.gd")
+const ErrLog = preload("errlog.gd")
 const Updater = preload("updater.gd")
 
 var bridge: Node
@@ -43,6 +44,7 @@ var _dub_host_plays := true
 var _member_client: Node          # Mitspieler-PC: Verbindung aus join_screen.gd, solange er in der Dub-Szene ist
 var dub_hook: Node
 var updater: Node
+var errlog = null                # meldet Fehler des Mods an den Server (errlog.gd)
 
 
 func _ready() -> void:
@@ -65,7 +67,15 @@ func _ready() -> void:
 	updater.name = "Updater"
 	add_child(updater)
 	updater.start(bridge.server_url, I18n.base_dir, VERSION)
+	# Fehler des Mods an den Server melden, damit man dort sieht, was bei den Leuten schiefgeht
+	errlog = ErrLog.new()
+	errlog.setup(self, bridge.server_url, VERSION)
 	print("Voicigame %s geladen, Server %s" % [VERSION, bridge.server_url])
+
+
+func _process(_delta: float) -> void:
+	if errlog != null:
+		errlog.poll()
 
 
 func _load_server_url() -> String:
