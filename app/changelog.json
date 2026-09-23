@@ -1,5 +1,12 @@
 [
   {
+    "build": 51,
+    "date": "2026-09-23",
+    "changes": [
+      "Voicigame 1.1.1: small fix so the server statistics show how many videos were made on players PCs."
+    ]
+  },
+  {
     "build": 50,
     "date": "2026-09-23",
     "changes": [

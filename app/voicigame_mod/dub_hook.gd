@@ -523,6 +523,8 @@ func _export_tick() -> void:
 			var e = _dub().get("export")
 			if e is Dictionary and bool(e.get("byHost", false)) and str(e.get("status", "")) != "done":
 				_upload_export()
+			else:
+				bridge._send({"type": "dub.export.local"})   # nur damit die Statistik es sieht
 			_refresh()
 		"error":
 			push_warning("Voicigame: Export auf diesem PC fehlgeschlagen (%s), der Server macht es" % _ex_job.error)
