@@ -20,6 +20,7 @@ extends Node
 const WavUtil = preload("wav_util.gd")
 const I18n = preload("i18n.gd")
 const PackWeb = preload("pack_web.gd")
+const ExportLocal = preload("export_local.gd")
 const Players = preload("players.gd")
 const UI = preload("ui.gd")
 const LOCAL_ID := "local-1"
@@ -38,6 +39,7 @@ signal scene_left                   # Dub-Szene wurde verlassen (Runde vorbei od
 
 # Nur für Tests (tools/test_dub.gd): Fehler absichtlich auslösen
 static var test_fail_uploads := 0   # so viele Pack-Stücke scheitern lassen
+static var test_no_local := false   # nur Tests: Export über den Server, nicht auf diesem PC
 static var test_broken_take := ""   # Aufnahmen dieser Zeile lassen sich nie laden
 var test_export_fail := false       # erster Video-Download geht schief
 var test_local_delay_ms := 0        # Test-Aufnahme für den PC erst so spät einspielen
@@ -85,6 +87,13 @@ var _loading := {}
 var _uploaded_local := {}        # Index -> true
 ## Web-Pack für die Browser (pack_web.gd): state "" | build | up | done | off
 var _web := {"can": false, "state": "", "build": null, "file": "", "size": 0, "offset": 0, "tries": 0}
+var _ex_job = null               # Export auf diesem PC (export_local.gd)
+var _ex_note := ""               # Zeile darüber in der Anzeige
+var _ex_times := {}              # Zeile -> Zeitpunkte im Video (kommt aus pack.json)
+var _ex_asked := false           # pack.json ist unterwegs
+## Fertiges Video für die Browser hochladen: state "" | up | done
+var _ex_up := {"state": "", "size": 0, "offset": 0, "tries": 0}
+var _ex_failed := false          # hier geht es nicht (kein ffmpeg, kein Video): nicht jedes Bild neu versuchen
 var _mix_later := {}             # Index -> true (Web-Aufnahme in die PC-Aufnahme mischen)
 var _skipped := {}               # Index -> true
 var _finished := false
@@ -248,6 +257,11 @@ func _pack_dir() -> String:
 ## Vorige Runde im selben Raum (Ergebnis oder abgebrochen): erst zurück in die Lobby,
 ## sonst lehnt der Server ein neues oder dasselbe Pack ab.
 func _prepare_round() -> void:
+	# Neue Runde: Zeitpunkte und das fertige Video von vorhin gelten nicht mehr
+	_ex_times.clear()
+	_ex_asked = false
+	_ex_failed = false
+	_ex_up = {"state": "", "size": 0, "offset": 0, "tries": 0}
 	if member:
 		_upload_state = "done"   # Pack liegt auf diesem PC, hochladen macht der Host
 		return
@@ -311,7 +325,8 @@ func _start_upload() -> void:
 	for f in _files:
 		plan_files.append({"name": f["name"], "size": f["size"]})
 	# Haben wir ffmpeg, bauen wir den Browsern ihr Pack selbst: der Server wandelt dann nichts um
-	_web = {"can": PackWeb.ffmpeg_path() != "", "state": "", "build": null, "file": "", "size": 0, "offset": 0, "tries": 0}
+	_web = {"can": PackWeb.ffmpeg_path() != "", "state": "", "build": null, "file": "", "size": 0, "offset": 0,
+		"tries": 0, "fp": PackWeb.fingerprint(plan_files)}
 	_plan = {"stream": true, "files": plan_files, "order": play, "useAsIs": use_as_is,
 		"title": str(res.pack_info.display_name), "folder": str(res.pack_info.folder_name).trim_suffix("/"),
 		"durations": _durations(), "web": {"can": _web["can"]}}
@@ -435,7 +450,7 @@ func _web_fail(reason: String) -> void:
 	push_warning("Voicigame: Browser-Pack nicht möglich (%s)" % reason)
 	if _web["build"] != null:
 		_web["build"].cancel()
-	_web = {"can": false, "state": "off", "build": null, "file": "", "size": 0, "offset": 0, "tries": 0}
+	_web = {"can": false, "state": "off", "build": null, "file": "", "size": 0, "offset": 0, "tries": 0, "fp": _web.get("fp", "")}
 	if is_instance_valid(bridge) and bridge.room_code != "":
 		_http_job(HTTPClient.METHOD_POST, "/api/rooms/%s/dub/pack/web/off" % bridge.room_code, [], PackedByteArray(), func(_c, _b): pass)
 	_refresh()
@@ -477,6 +492,99 @@ func _on_web_reply(code: int, body: PackedByteArray, sent: int) -> void:
 		return
 	_refresh()
 	_web_send()
+
+
+## Export auf diesem PC: Fortschritt verfolgen, am Ende wie ein fertiger Download behandeln.
+func _export_tick() -> void:
+	# Jemand im Browser will das Video und der Server wartet darauf, dass wir es liefern
+	var ex = _dub().get("export")
+	if not member and not _ex_failed and ex is Dictionary and bool(ex.get("byHost", false)) and str(ex.get("status", "")) != "done":
+		if _ex_job == null and _ex_up["state"] == "":
+			if _export_state == "done" and FileAccess.file_exists(_export_file):
+				_upload_export()
+			elif not _start_local_export():
+				# Hier geht es nicht: der Server soll nicht vier Minuten auf uns warten
+				_ex_failed = true
+				bridge._send({"type": "dub.export.server"})
+	if _ex_job == null:
+		return
+	_ex_job.poll()
+	match str(_ex_job.state):
+		"run":
+			_ex_note = _t("Video wird auf diesem PC erstellt … {} %", [int(round(_ex_job.progress * 100.0))])
+			_refresh()
+		"done":
+			_export_file = str(_ex_job.out_file)
+			_export_state = "done"
+			_ex_job = null
+			_ex_note = ""
+			print("Voicigame | Video gespeichert: %s" % _export_file)
+			_copy_export()
+			var e = _dub().get("export")
+			if e is Dictionary and bool(e.get("byHost", false)) and str(e.get("status", "")) != "done":
+				_upload_export()
+			_refresh()
+		"error":
+			push_warning("Voicigame: Export auf diesem PC fehlgeschlagen (%s), der Server macht es" % _ex_job.error)
+			_ex_job = null
+			_ex_note = ""
+			_export_state = ""
+			_ex_failed = true
+			bridge._send({"type": "dub.export.server"})   # zurück auf den Server
+			_refresh()
+
+
+## Das fertige Video zum Server, damit die Leute im Browser es auch bekommen.
+func _upload_export() -> void:
+	if _ex_up["state"] != "" or not FileAccess.file_exists(_export_file):
+		return
+	var fa := FileAccess.open(_export_file, FileAccess.READ)
+	if fa == null:
+		return
+	_ex_up = {"state": "up", "size": fa.get_length(), "offset": 0, "tries": 0}
+	fa.close()
+	print("Voicigame | Video wird für die Browser hochgeladen (%.1f MB)" % (float(_ex_up["size"]) / 1048576.0))
+	_ex_send()
+
+
+func _ex_send() -> void:
+	if _leaving or _ex_up["state"] != "up":
+		return
+	var fa := FileAccess.open(_export_file, FileAccess.READ)
+	if fa == null:
+		_ex_up["state"] = "done"
+		return
+	fa.seek(int(_ex_up["offset"]))
+	var chunk := fa.get_buffer(mini(CHUNK, int(_ex_up["size"]) - int(_ex_up["offset"])))
+	fa.close()
+	var url := "/api/rooms/%s/dub/export?offset=%d&size=%d&name=%s" % [bridge.room_code,
+		int(_ex_up["offset"]), int(_ex_up["size"]), _export_file.get_file().uri_encode()]
+	_http_job(HTTPClient.METHOD_PUT, url, ["Content-Type: application/octet-stream"], chunk, _on_ex_reply.bind(chunk.size()))
+
+
+func _on_ex_reply(code: int, body: PackedByteArray, sent: int) -> void:
+	if _ex_up["state"] != "up":
+		return
+	if code != 200:
+		var j = JSON.parse_string(body.get_string_from_utf8())
+		if code == 409 and j is Dictionary and str(j.get("error", "")) == "bad_offset" and j.has("have"):
+			_ex_up["offset"] = clampi(int(j.have), 0, int(_ex_up["size"]))
+		_ex_up["tries"] = int(_ex_up["tries"]) + 1
+		if int(_ex_up["tries"]) > 3:
+			push_warning("Voicigame: Video nicht hochgeladen (%d), der Server macht sein eigenes" % code)
+			_ex_up["state"] = "done"
+			return
+		get_tree().create_timer(2.0).timeout.connect(_ex_send)
+		return
+	_ex_up["tries"] = 0
+	_ex_up["offset"] = int(_ex_up["offset"]) + sent
+	if int(_ex_up["offset"]) >= int(_ex_up["size"]):
+		_ex_up["state"] = "done"
+		print("Voicigame | Video liegt für die Browser bereit")
+		_refresh()
+		return
+	_refresh()
+	_ex_send()
 
 
 ## Fortschritt fürs Hub: "" = nichts zu sagen.
@@ -814,6 +922,7 @@ func _process(_delta: float) -> void:
 		return
 	if not _started:
 		_web_tick(d)
+		_export_tick()
 		if phase in ["playing", "paused"] and _upload_state in ["uploading", "local", "commit", "done"]:
 			_begin()
 		return
@@ -821,6 +930,7 @@ func _process(_delta: float) -> void:
 		_upload_state = "uploading"   # jetzt braucht es jemand: weiter hochladen
 		_upload_step()
 	_web_tick(d)
+	_export_tick()
 	_fetch_known_takes()
 	_send_local_takes()
 	if _busy:
@@ -1309,11 +1419,140 @@ func request_export() -> void:
 	var ex = _dub().get("export")
 	var ready := ex is Dictionary and str(ex.get("status", "")) == "done"
 	_export_state = ""
+	_ex_up = {"state": "", "size": 0, "offset": 0, "tries": 0}
+	# Haben wir ffmpeg und das Pack liegt hier, machen wir das Video selbst: der Server hat zwei Kerne
+	if not ready and not member and _start_local_export():
+		_refresh()
+		return
 	if not ready:
 		bridge._send({"type": "dub.export"})
 	else:
 		_check_export()   # Video liegt schon bereit: nur neu herunterladen
 	_refresh()
+
+
+## Export auf diesem PC vorbereiten und starten. -> hat geklappt?
+func _start_local_export() -> bool:
+	if _ex_job != null:
+		return true
+	if test_no_local:
+		return false
+	var ff := PackWeb.ffmpeg_path()
+	if ff == "" or not is_instance_valid(dm):
+		return false
+	# Die Zeitpunkte der Zeilen im Video stehen in den .ini des Packs, der Server hat sie schon eingelesen
+	if _ex_times.is_empty():
+		if _ex_asked:
+			return true
+		_ex_asked = true
+		_ex_note = _t("Video wird auf diesem PC erstellt … {} %", [0])
+		_http_job(HTTPClient.METHOD_GET, "/api/rooms/%s/dub/pack.json" % bridge.room_code, [],
+			PackedByteArray(), _on_export_pack)
+		return true
+	var dir := _pack_dir()
+	var work := PackWeb.root().path_join("export")
+	# Video: aus dem Browser-Pack ist es schon H.264 und wird nur durchgereicht
+	var video := ""
+	var copy_video := false
+	var web_file := PackWeb.cached_file(str(_web.get("fp", "")))
+	var d := _dub()
+	var pack = d.get("pack")
+	var video_name := ""
+	for f in DirAccess.get_files_at(dir):
+		if f.get_basename().to_lower() == "dub_video":
+			video_name = f
+			break
+	if video_name == "":
+		return false
+	if web_file != "":
+		var got := PackWeb.extract(web_file, video_name, work.path_join("video.mp4"))
+		if got:
+			video = work.path_join("video.mp4")
+			copy_video = true
+	if video == "":
+		video = dir.path_join(video_name)
+
+	# Zeilen: was im Spiel zu hören war, sonst der Originalclip
+	var lines: Array = []
+	var times := _clip_times()
+	if times.is_empty():
+		return false
+	DirAccess.make_dir_recursive_absolute(work)
+	for i in dm.performance_array.size():
+		if i >= order.size():
+			break
+		var id: String = order[i]
+		var t: Array = times.get(id, [])
+		if t.is_empty():
+			continue
+		var file := ""
+		var audio = dm.performance_array[i].member_audio
+		if audio is AudioStreamWAV:
+			file = work.path_join("line_%d.wav" % i)
+			var fa := FileAccess.open(file, FileAccess.WRITE)
+			if fa:
+				fa.store_buffer(_wav_bytes(audio))
+				fa.close()
+			else:
+				file = ""
+		if file == "":
+			file = _clip_file(dir, id)
+		if file != "":
+			lines.append({"file": file, "times": t})
+	for id in use_as_is:
+		var t: Array = times.get(id, [])
+		var file := _clip_file(dir, str(id))
+		if not t.is_empty() and file != "":
+			lines.append({"file": file, "times": t})
+
+	var name := "%s %s.mp4" % [str(pack.get("title", "Dub")) if pack is Dictionary else "Dub", _stamp()]
+	var job = ExportLocal.new()
+	job.start({"ffmpeg": ff, "video": video, "copy_video": copy_video,
+		"backing": _clip_file(dir, "_backing_track"), "lines": lines,
+		"duration": float(d.get("video", {}).get("duration", 0.0)) if d.get("video") is Dictionary else 0.0,
+		"out": export_dir + name.validate_filename(), "work": work})
+	if job.state != "run":
+		push_warning("Voicigame: Export auf diesem PC nicht gestartet (%s)" % job.error)
+		return false
+	_ex_job = job
+	_export_state = "loading"
+	print("Voicigame | Video wird auf diesem PC erstellt")
+	return true
+
+
+## Antwort auf pack.json: Zeitpunkte merken und den Export starten. Ohne sie macht es der Server.
+func _on_export_pack(code: int, body: PackedByteArray) -> void:
+	var j = JSON.parse_string(body.get_string_from_utf8()) if code == 200 else null
+	var pack = j.get("pack") if j is Dictionary else null
+	if pack is Dictionary:
+		for c in pack.get("clips", []):
+			if c is Dictionary and c.get("times") is Array and not c.times.is_empty():
+				_ex_times[str(c.get("id", ""))] = c.times
+	if _ex_times.is_empty() or not _start_local_export():
+		push_warning("Voicigame: Export auf diesem PC nicht möglich, der Server macht es")
+		_ex_note = ""
+		_ex_failed = true
+		bridge._send({"type": "dub.export"})
+		bridge._send({"type": "dub.export.server"})
+	_refresh()
+
+
+## Zeitpunkte je Zeile, so wie der Server sie kennt (aus den .ini des Packs).
+func _clip_times() -> Dictionary:
+	return _ex_times
+
+
+## Datei einer Zeile im Pack-Ordner (Name ohne Endung), "" wenn es sie nicht gibt.
+func _clip_file(dir: String, id: String) -> String:
+	for f in DirAccess.get_files_at(dir):
+		if f.get_basename() == id and f.get_extension().to_lower() in ["ogg", "wav", "mp3", "flac", "m4a", "opus", "aac"]:
+			return dir.path_join(f)
+	return ""
+
+
+static func _stamp() -> String:
+	var t := Time.get_datetime_dict_from_system()
+	return "%04d-%02d-%02d %02d-%02d" % [t.year, t.month, t.day, t.hour, t.minute]
 
 
 func _check_export() -> void:
@@ -1351,18 +1590,23 @@ func _on_export_loaded(result: int, code: int, _h: PackedStringArray, _b: Packed
 	_trash_part()
 	if _export_state == "done":
 		print("Voicigame | Video gespeichert: %s" % _export_file)
-		for dir in _extra_export_dirs():
-			var copy: String = dir + _export_file.get_file()
-			if DirAccess.make_dir_recursive_absolute(dir) != OK or copy == _export_file:
-				continue
-			if FileAccess.file_exists(copy):
-				OS.move_to_trash(ProjectSettings.globalize_path(copy))
-			if DirAccess.copy_absolute(_export_file, copy) == OK:
-				print("Voicigame | Video auch gespeichert: %s" % copy)
-			else:
-				push_warning("Voicigame: Video nicht nach %s kopiert" % dir)
+		_copy_export()
 	_export_http.queue_free()
 	_refresh()
+
+
+## Das fertige Video zusätzlich dorthin legen, wo Voicitool es erwartet.
+func _copy_export() -> void:
+	for dir in _extra_export_dirs():
+		var copy: String = dir + _export_file.get_file()
+		if DirAccess.make_dir_recursive_absolute(dir) != OK or copy == _export_file:
+			continue
+		if FileAccess.file_exists(copy):
+			OS.move_to_trash(ProjectSettings.globalize_path(copy))
+		if DirAccess.copy_absolute(_export_file, copy) == OK:
+			print("Voicigame | Video auch gespeichert: %s" % copy)
+		else:
+			push_warning("Voicigame: Video nicht nach %s kopiert" % dir)
 
 
 func _trash_part() -> void:
@@ -1393,6 +1637,9 @@ func _finish_leaving() -> void:
 	if _web["build"] != null:
 		_web["build"].cancel()   # ffmpeg nicht weiterlaufen lassen
 		_web["build"] = null
+	if _ex_job != null:
+		_ex_job.cancel()
+		_ex_job = null
 	var until := Time.get_ticks_msec() + 15000
 	while bridge.has_room() and Time.get_ticks_msec() < until and _can_still_send():
 		_send_local_takes()
@@ -1939,13 +2186,15 @@ func _refresh() -> void:
 	if member and ok:
 		_hub_status.text = _t("Warte, bis die Spielleitung die Runde startet.")
 	_refresh_people()
-	if not member:
+	if not member and _ex_job == null and _ex_note == "":
 		_check_export()   # Host: fertiges Video gleich holen
 	if _finished:
 		var ex = d.get("export")
 		var st := str(ex.get("status", "")) if ex is Dictionary else ""
 		var text := _t("Fertig! „Watch“ startet das Video auf allen Geräten gleichzeitig.")
-		if st == "queued" or st == "running":
+		if _ex_note != "":
+			text = _ex_note   # läuft gerade auf diesem PC
+		elif st == "queued" or st == "running":
 			text = _t("Video wird erstellt: {} %", [int(float(ex.get("pct", 0)) * 100.0)])
 		elif st == "waiting":
 			text = _t("Für das Video wird das Pack hochgeladen: {} %", [int(100.0 * _up_done / maxf(1.0, _up_total))])

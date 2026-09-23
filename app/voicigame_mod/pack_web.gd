@@ -90,6 +90,60 @@ static func root() -> String:
 	return ProjectSettings.globalize_path(WORK)
 
 
+## Fertiges Pack von früher, sonst "".
+static func cached_file(fp: String) -> String:
+	if fp == "":
+		return ""
+	var p := "%s/%s.vgpack" % [root(), fp]
+	return p if FileAccess.file_exists(p) else ""
+
+
+## Verzeichnis eines fertigen Packs lesen (Aufbau siehe server/src/vgpack.js). {} = geht nicht.
+static func manifest_of(file: String) -> Dictionary:
+	var f := FileAccess.open(file, FileAccess.READ)
+	if f == null:
+		return {}
+	var head := f.get_buffer(12)
+	if head.size() < 12 or head.slice(0, 6).get_string_from_utf8() != "VGPACK" or head[6] != 1:
+		f.close()
+		return {}
+	var len := head.decode_u32(8)
+	var text := f.get_buffer(len).get_string_from_utf8()
+	f.close()
+	var j = JSON.parse_string(text)
+	return j if j is Dictionary else {}
+
+
+## Eine Datei aus dem fertigen Pack herausschneiden. -> hat geklappt?
+static func extract(file: String, name: String, out: String) -> bool:
+	var m := manifest_of(file)
+	if m.is_empty():
+		return false
+	for a in m.get("assets", []):
+		if not a is Dictionary or str(a.get("n", "")) != name:
+			continue
+		var src := FileAccess.open(file, FileAccess.READ)
+		if src == null:
+			return false
+		DirAccess.make_dir_recursive_absolute(out.get_base_dir())
+		var dst := FileAccess.open(out, FileAccess.WRITE)
+		if dst == null:
+			src.close()
+			return false
+		src.seek(int(a.get("o", 0)))
+		var left := int(a.get("l", 0))
+		while left > 0:
+			var part := src.get_buffer(mini(left, 1 << 20))
+			if part.is_empty():
+				break
+			dst.store_buffer(part)
+			left -= part.size()
+		src.close()
+		dst.close()
+		return left == 0
+	return false
+
+
 ## files: [{name, path, size}] aus dem Pack-Ordner, play: Reihenfolge der Zeilen (Dateinamen ohne Endung).
 func start(pack_dir: String, files: Array, play: Array) -> void:
 	_dir = ProjectSettings.globalize_path(pack_dir)   # ffmpeg kennt user:// nicht
