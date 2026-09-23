@@ -15,6 +15,7 @@ signal clip_ready(clip_id: String, stream: AudioStream)
 signal upload_done(round_id: String, ok: bool, message: String)
 signal live_frame(data: PackedByteArray)   # Live-Bild/Ton vom Host, Format siehe server/src/stream.js
 signal message_received(msg: Dictionary)   # jede Nachricht vom Server (Dub-Modus im eigenen Spiel hört hier mit)
+signal notice_changed                      # Hinweis vom Server (Wartung, Mod zu alt), siehe notice
 
 const WavUtil = preload("wav_util.gd")
 const Bridge = preload("bridge.gd")
@@ -28,6 +29,8 @@ var player_name := ""
 var token := ""
 var player_id := ""
 var state: Dictionary = {}
+## Hinweise des Servers: Code -> {"level", "text", "need"}. Text siehe notice_text().
+var notice: Dictionary = {}
 var connected := false
 # Wie bridge.gd, damit dub_hook.gd auch hier mitspielen kann (Dub-Modus im eigenen Spiel)
 var room_code := ""
@@ -201,6 +204,12 @@ func _handle(msg: Dictionary) -> void:
 			scores_received.emit(msg.get("scores", []))
 		"show.end":
 			show_ended.emit(msg.get("ranking", []))
+		"notice":
+			var nc := str(msg.get("code", ""))
+			if nc != "":
+				notice[nc] = {"level": str(msg.get("level", "info")), "text": str(msg.get("text", "")),
+					"need": str(msg.get("need", "")), "at": Time.get_ticks_msec()}
+				notice_changed.emit()
 		"kicked":
 			_active = false
 			_forget_token()
@@ -402,3 +411,8 @@ func _on_upload_done(_result: int, status: int, _headers: PackedStringArray, bod
 		msg = "Senden fehlgeschlagen"
 		push_warning("Voicigame: Upload fehlgeschlagen (%d) %s" % [status, body.get_string_from_utf8().left(200)])
 	upload_done.emit(_up_round, status == 200, msg)
+
+
+## Text für die Hinweiszeile („Wartung“, „Mod ist zu alt“), "" = kein Hinweis. Wie in bridge.gd.
+func notice_text() -> String:
+	return Bridge.notice_text_of(notice)

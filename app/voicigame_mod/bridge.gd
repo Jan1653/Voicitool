@@ -13,6 +13,7 @@ signal queued(position: int)                                 # Server voll: Plat
 signal clip_uploaded(clip_id: String, ok: bool)
 signal error_received(code: String, message: String)
 signal message_received(msg: Dictionary)   # jede Nachricht vom Server (Dub-Modus hört hier mit)
+signal notice_changed                      # Hinweis vom Server (Wartung, Mod zu alt), siehe notice
 
 const WavUtil = preload("wav_util.gd")
 const I18n = preload("i18n.gd")
@@ -25,6 +26,8 @@ var host_key := ""
 var join_url := ""
 var state: Dictionary = {}
 var connected := false
+## Hinweise des Servers: Code -> {"level": "info|update|block", "text": ...}. Anzeige siehe notice_text().
+var notice: Dictionary = {}
 
 var _ws := WebSocketPeer.new()
 var _pending: Array = []
@@ -77,7 +80,8 @@ func create_room() -> void:
 
 func _request_room() -> void:
 	var path := "/api/rooms" + ("?ticket=" + _queue_ticket.uri_encode() if _queue_ticket != "" else "")
-	_http_job(HTTPClient.METHOD_POST, path, ["Content-Type: application/json"], "{}".to_utf8_buffer(), _on_room_created)
+	var body := JSON.stringify(client_info(mod_version)).to_utf8_buffer()
+	_http_job(HTTPClient.METHOD_POST, path, ["Content-Type: application/json"], body, _on_room_created)
 
 
 func close_room() -> void:
@@ -251,6 +255,12 @@ func _handle(msg: Dictionary) -> void:
 			state_changed.emit(state)
 		"show.recording":
 			show_recording.emit(str(msg.get("roundId", "")), str(msg.get("playerId", "")))
+		"notice":
+			var nc := str(msg.get("code", ""))
+			if nc != "":
+				notice[nc] = {"level": str(msg.get("level", "info")), "text": str(msg.get("text", "")),
+					"need": str(msg.get("need", "")), "at": Time.get_ticks_msec()}
+				notice_changed.emit()
 		"error":
 			var code := str(msg.get("code", ""))
 			if code == "room_not_found" and has_room():
@@ -322,3 +332,31 @@ static func _mime_for(path: String) -> String:
 		"flac": return "audio/flac"
 		"m4a": return "audio/mp4"
 	return "application/octet-stream"
+
+
+## Text für die Hinweiszeile („Wartung“, „Mod ist zu alt“), "" = kein Hinweis.
+func notice_text() -> String:
+	return notice_text_of(notice)
+
+
+## Wie notice_text(), für alle, die Hinweise sammeln (auch join_client.gd).
+## Über Voicitool installiert aktualisiert Voicitool den Mod, sonst holt der Mod sich das Update selbst.
+static func notice_text_of(notes: Dictionary) -> String:
+	var out: Array = []
+	var mod = notes.get("mod_old")
+	if mod is Dictionary:
+		var by_voicitool := FileAccess.file_exists(I18n.base_dir.path_join("voicitool.cfg"))
+		var what := I18n.t("Dieser Mod ist zu alt für den Server.")
+		if str(mod.get("level", "")) != "block":
+			what = I18n.t("Für den Server gibt es eine neuere Version des Mods.")
+		var how := I18n.t("Starte das Spiel neu, dann holt er sich das Update.")
+		if by_voicitool:
+			how = I18n.t("Voicitool öffnen, dann wird er aktualisiert.")
+		out.append("%s %s" % [what, how])
+	var res = notes.get("restart")
+	if res is Dictionary and Time.get_ticks_msec() - int(res.get("at", 0)) < 300000:
+		out.append(I18n.t("Der Server bekommt gleich ein Update und startet kurz neu. Danach müsst ihr neu beitreten."))
+	var srv = notes.get("server")
+	if srv is Dictionary and str(srv.get("text", "")) != "":
+		out.append(str(srv.text))
+	return "\n".join(out)

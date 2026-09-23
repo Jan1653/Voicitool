@@ -89,6 +89,7 @@ func setup(server_url: String, mod_version: String = "") -> void:
 	client.scores_received.connect(func(s): _scores = s; _refresh())
 	client.show_ended.connect(func(r): _ranking = r; _refresh())
 	client.connection_changed.connect(func(_c): _refresh())
+	client.notice_changed.connect(_refresh)
 	client.error_received.connect(_on_error)
 	client.kicked.connect(func(): _show_entry(tr_("Du wurdest aus dem Raum entfernt.")))
 	client.clip_ready.connect(func(_id, _s): _refresh())
@@ -311,6 +312,9 @@ func _refresh() -> void:
 	# Mitspieler bzw. Punkte
 	for c in _players.get_children():
 		c.queue_free()
+	var note: String = client.notice_text()
+	if note != "":
+		_players.add_child(UI.text(note, 17, 420, UI.ACCENT))
 	var totals := {}
 	for s in _scores:
 		totals[str(s.get("playerId", s.get("name")))] = s.get("total")

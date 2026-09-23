@@ -127,10 +127,13 @@ def sync_copy():
 
 def write_export_cfg():
     """voicitool.cfg neben den Mod: dorthin legt der Mod exportierte Dub-Videos zusätzlich zu Videos\\Voicigame.
+    Dazu [tools] ffmpeg: unser mitgeliefertes ffmpeg. Damit baut der Mod das Pack für die Browser selbst
+    (Video als H.264, Ton als AAC, Bilder als WebP), der Server muss dann nichts mehr umwandeln.
     Godot-ConfigFile, Pfad mit / (Windows-Pfade enthalten keine Anführungszeichen)."""
     if not MOD_DIR.is_dir():
         return
-    text = '[export]\n\ndir="%s"\n' % config.EXPORT_VIDEOS.as_posix()
+    text = '[export]\n\ndir="%s"\n\n[tools]\n\nffmpeg="%s"\n' % (
+        config.EXPORT_VIDEOS.as_posix(), Path(config.FFMPEG).as_posix())
     p = MOD_DIR / "voicitool.cfg"
     try:
         if not p.is_file() or p.read_text(encoding="utf-8") != text:

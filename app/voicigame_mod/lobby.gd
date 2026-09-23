@@ -23,6 +23,7 @@ var _status: Label
 var _host_plays: CheckBox
 var _name_edit: LineEdit
 var _qr_http: HTTPRequest
+var _notice: Label
 var update_note := ""            # setzt main.gd: Update installiert oder verfügbar
 var _kick_armed := ""            # Spieler, bei dem „Entfernen“ schon einmal gedrückt wurde (zweiter Klick entfernt)
 
@@ -41,6 +42,7 @@ func setup(b: Node) -> void:
 	bridge.error_received.connect(_on_error)
 	bridge.room_lost.connect(_on_room_lost)
 	bridge.queued.connect(_on_queued)
+	bridge.notice_changed.connect(_refresh_notice)
 	if bridge.has_room():
 		_show_host()     # Raum läuft schon (zurück aus dem Spiel): direkt die Host-Seite
 	else:
@@ -168,6 +170,11 @@ func _show_host() -> void:
 	_status = UI.label("", 17, false, UI.WARN)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	right.add_child(_status)
+	_notice = UI.label("", 17, false, UI.ACCENT)
+	_notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_notice.custom_minimum_size.x = 420
+	right.add_child(_notice)
+	_refresh_notice()
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 12)
 	buttons.add_child(UI.button(tr_("Weiter"), _on_start, 170, 52))
@@ -224,6 +231,12 @@ func _refresh() -> void:
 		_status.text = tr_("Verbindung zum Server wird aufgebaut …")
 	elif bridge.has_room():
 		_status.text = "" if web.size() else tr_("Warte auf Mitspieler.")
+
+
+## Hinweis des Servers (Wartung, Mod zu alt) unter die Spielerliste.
+func _refresh_notice() -> void:
+	if is_instance_valid(_notice):
+		_notice.text = bridge.notice_text()
 
 
 ## Raum gibt es auf dem Server nicht mehr (Server neu gestartet, zu lange still): neuen anlegen.

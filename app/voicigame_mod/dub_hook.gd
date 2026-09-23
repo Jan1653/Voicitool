@@ -19,6 +19,7 @@ extends Node
 
 const WavUtil = preload("wav_util.gd")
 const I18n = preload("i18n.gd")
+const PackWeb = preload("pack_web.gd")
 const Players = preload("players.gd")
 const UI = preload("ui.gd")
 const LOCAL_ID := "local-1"
@@ -82,6 +83,8 @@ var _engage_ref := -1
 var _takes := {}                 # "clip|pid|v" -> AudioStreamWAV
 var _loading := {}
 var _uploaded_local := {}        # Index -> true
+## Web-Pack für die Browser (pack_web.gd): state "" | build | up | done | off
+var _web := {"can": false, "state": "", "build": null, "file": "", "size": 0, "offset": 0, "tries": 0}
 var _mix_later := {}             # Index -> true (Web-Aufnahme in die PC-Aufnahme mischen)
 var _skipped := {}               # Index -> true
 var _finished := false
@@ -307,9 +310,11 @@ func _start_upload() -> void:
 	var plan_files := []
 	for f in _files:
 		plan_files.append({"name": f["name"], "size": f["size"]})
+	# Haben wir ffmpeg, bauen wir den Browsern ihr Pack selbst: der Server wandelt dann nichts um
+	_web = {"can": PackWeb.ffmpeg_path() != "", "state": "", "build": null, "file": "", "size": 0, "offset": 0, "tries": 0}
 	_plan = {"stream": true, "files": plan_files, "order": play, "useAsIs": use_as_is,
 		"title": str(res.pack_info.display_name), "folder": str(res.pack_info.folder_name).trim_suffix("/"),
-		"durations": _durations()}
+		"durations": _durations(), "web": {"can": _web["can"]}}
 	_upload_state = "uploading"
 	_up_began = false
 	_up_index = 0
@@ -363,6 +368,8 @@ func _on_upload_reply(code: int, body: PackedByteArray, sent: int) -> void:
 	if not _up_began:
 		_up_began = true
 		var j = JSON.parse_string(body.get_string_from_utf8())
+		if j is Dictionary and j.get("haveWeb", false):
+			_web["state"] = "done"   # das fertige Web-Pack liegt schon auf dem Server
 		if j is Dictionary and j.get("have", false):
 			# Der Server kennt dieses Pack schon (gleiche Dateien): nichts hochladen, nichts umwandeln
 			_upload_state = "done"
@@ -379,6 +386,109 @@ func _on_upload_reply(code: int, body: PackedByteArray, sent: int) -> void:
 			_up_offset = 0
 	_refresh()
 	_upload_step()
+
+
+## Web-Pack für die Browser: bauen, sobald es jemand braucht, dann hochladen.
+## Läuft neben dem gewöhnlichen Upload, beide teilen sich die HTTP-Warteschlange.
+func _web_tick(d: Dictionary) -> void:
+	if member or not _web["can"] or _web["state"] in ["done", "off", "up"]:
+		return
+	var wp = d.get("webPack", {})
+	if not wp is Dictionary or not bool(wp.get("can", false)):
+		return
+	if _web["state"] == "":
+		if not bool(wp.get("wanted", false)):
+			return   # niemand im Browser: nichts bauen, der PC soll ja spielen
+		var b := PackWeb.new()
+		b.start(_pack_dir(), _files, order + use_as_is)
+		_web["build"] = b
+		_web["state"] = "build"
+		print("Voicigame | Pack wird für den Browser vorbereitet")
+	var build = _web["build"]
+	build.poll()
+	if build.state == "done":
+		_web_ready(str(build.out_file))
+	elif build.state == "error":
+		_web_fail(str(build.error))
+	_refresh()
+
+
+func _web_ready(file: String) -> void:
+	var fa := FileAccess.open(file, FileAccess.READ)
+	if fa == null:
+		_web_fail("open")
+		return
+	_web["file"] = file
+	_web["size"] = fa.get_length()
+	fa.close()
+	_web["offset"] = 0
+	_web["state"] = "up"
+	_web["build"] = null
+	print("Voicigame | Browser-Pack fertig (%.1f MB)" % (float(_web["size"]) / 1048576.0))
+	_web_send()
+
+
+## Klappt nicht (kein ffmpeg, Umwandlung fehlgeschlagen): dem Server sagen, dann läuft alles wie vorher.
+func _web_fail(reason: String) -> void:
+	if _web["state"] == "off":
+		return
+	push_warning("Voicigame: Browser-Pack nicht möglich (%s)" % reason)
+	if _web["build"] != null:
+		_web["build"].cancel()
+	_web = {"can": false, "state": "off", "build": null, "file": "", "size": 0, "offset": 0, "tries": 0}
+	if is_instance_valid(bridge) and bridge.room_code != "":
+		_http_job(HTTPClient.METHOD_POST, "/api/rooms/%s/dub/pack/web/off" % bridge.room_code, [], PackedByteArray(), func(_c, _b): pass)
+	_refresh()
+
+
+func _web_send() -> void:
+	if _leaving or _web["state"] != "up":
+		return
+	var fa := FileAccess.open(str(_web["file"]), FileAccess.READ)
+	if fa == null:
+		_web_fail("read")
+		return
+	fa.seek(int(_web["offset"]))
+	var chunk := fa.get_buffer(mini(CHUNK, int(_web["size"]) - int(_web["offset"])))
+	fa.close()
+	var url := "/api/rooms/%s/dub/pack/web?offset=%d&size=%d" % [bridge.room_code, int(_web["offset"]), int(_web["size"])]
+	_http_job(HTTPClient.METHOD_PUT, url, ["Content-Type: application/octet-stream"], chunk, _on_web_reply.bind(chunk.size()))
+
+
+func _on_web_reply(code: int, body: PackedByteArray, sent: int) -> void:
+	if _web["state"] != "up":
+		return
+	if code != 200:
+		var j = JSON.parse_string(body.get_string_from_utf8())
+		if code == 409 and j is Dictionary and str(j.get("error", "")) == "bad_offset" and j.has("have"):
+			_web["offset"] = clampi(int(j.have), 0, int(_web["size"]))
+		_web["tries"] = int(_web["tries"]) + 1
+		if int(_web["tries"]) > 3:
+			_web_fail("upload %d" % code)
+			return
+		get_tree().create_timer(2.0).timeout.connect(_web_send)
+		return
+	_web["tries"] = 0
+	_web["offset"] = int(_web["offset"]) + sent
+	if int(_web["offset"]) >= int(_web["size"]):
+		_web["state"] = "done"
+		print("Voicigame | Browser-Pack hochgeladen")
+		_refresh()
+		return
+	_refresh()
+	_web_send()
+
+
+## Fortschritt fürs Hub: "" = nichts zu sagen.
+func _web_note() -> String:
+	match str(_web["state"]):
+		"build":
+			var pct := int(round(100.0 * float(_web["build"].progress))) if _web["build"] != null else 0
+			return _t("Pack wird für den Browser vorbereitet … {} %", [pct])
+		"up":
+			var pct := int(round(100.0 * float(_web["offset"]) / maxf(1.0, float(_web["size"]))))
+			return _t("Browser-Pack wird hochgeladen … {} %", [pct])
+	return ""
 
 
 ## Stück ging schief: kurz warten und nochmal, ab dem Stand, den der Server schon hat.
@@ -703,12 +813,14 @@ func _process(_delta: float) -> void:
 			_ask_hub()
 		return
 	if not _started:
+		_web_tick(d)
 		if phase in ["playing", "paused"] and _upload_state in ["uploading", "local", "commit", "done"]:
 			_begin()
 		return
 	if _upload_state == "local" and bool(d.get("packWanted", false)):
 		_upload_state = "uploading"   # jetzt braucht es jemand: weiter hochladen
 		_upload_step()
+	_web_tick(d)
 	_fetch_known_takes()
 	_send_local_takes()
 	if _busy:
@@ -1278,6 +1390,9 @@ func _on_scene_left() -> void:
 ## Nach dem Verlassen: PC-Aufnahmen, die der Server gerade annehmen kann, noch schicken (höchstens 15 s).
 ## Wurde die Runde mittendrin verlassen, gehen alle zurück in die Lobby, sonst warten die Browser ewig auf den PC.
 func _finish_leaving() -> void:
+	if _web["build"] != null:
+		_web["build"].cancel()   # ffmpeg nicht weiterlaufen lassen
+		_web["build"] = null
 	var until := Time.get_ticks_msec() + 15000
 	while bridge.has_room() and Time.get_ticks_msec() < until and _can_still_send():
 		_send_local_takes()
@@ -1726,6 +1841,10 @@ func _refresh() -> void:
 				_hub_upload.text = _t("Das Video läuft nur in manchen Browsern (auf dem Server fehlt ffmpeg).")
 			else:
 				_hub_upload.text = _t("Pack ist auf dem Server.")
+	var wnote := _web_note()
+	if wnote != "":
+		_hub_upload.text = wnote if _upload_state in ["done", "local"] else _hub_upload.text + "
+" + wnote
 	# Spieler
 	for c in _players_box.get_children():
 		c.queue_free()
