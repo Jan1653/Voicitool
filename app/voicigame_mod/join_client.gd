@@ -170,9 +170,11 @@ func has_room() -> bool:
 	return _active and code != ""
 
 
-## Mitspieler aus dem Browser oder mit eigenem Spiel (alle außer den Spielern am Host-PC).
+## Mitspieler aus dem Browser oder mit eigenem Spiel, dazu die, die sich so ein Gerät teilen
+## (alle außer den Spielern am Host-PC).
 func web_players() -> Array:
-	return state.get("players", []).filter(func(p): return str(p.get("kind", "")) == "phone")
+	return state.get("players", []).filter(func(p):
+		return str(p.get("kind", "")) == "phone" or (str(p.get("kind", "")) == "local" and str(p.get("owner", "")) != ""))
 
 
 func qr_url() -> String:

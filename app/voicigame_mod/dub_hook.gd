@@ -1007,7 +1007,9 @@ func _process(_delta: float) -> void:
 func _at_pc(pid) -> bool:
 	for p in bridge.state.get("players", []):
 		if str(p.get("id", "")) == str(pid):
-			return str(p.get("kind", "")) == "local" or bool(p.get("game", false))
+			# atPc: wirklich an diesem PC. Wer sich ein Handy oder einen Browser mit jemandem teilt,
+			# zählt auch als „local“, sitzt aber nicht hier.
+			return bool(p.get("atPc", str(p.get("kind", "")) == "local")) or bool(p.get("game", false))
 	return false
 
 
@@ -2105,7 +2107,9 @@ func _refresh() -> void:
 		var info: Dictionary = infos.get(pid, {})
 		var tag := ""
 		var col := Color(0.8, 0.85, 0.9)
-		if str(p.get("kind", "")) == "local" or (p.get("game", false) and not info.get("spectator", false)):
+		if str(p.get("owner", "")) != "":
+			tag = _t("teilt ein Gerät")   # sitzt neben jemandem, der im Browser spielt
+		elif str(p.get("kind", "")) == "local" or (p.get("game", false) and not info.get("spectator", false)):
 			tag = _t("am PC")
 		elif not p.get("connected", false):
 			tag = _t("getrennt")

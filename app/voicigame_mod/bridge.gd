@@ -61,10 +61,12 @@ func has_room() -> bool:
 	return room_code != "" and host_key != ""
 
 
+## Alle, die nicht am PC sitzen: Handys und Browser, dazu die Leute, die sich so ein Gerät teilen.
 func web_players() -> Array:
 	var out: Array = []
 	for p in state.get("players", []):
-		if p.get("kind", "") == "phone":
+		var kind := str(p.get("kind", ""))
+		if kind == "phone" or (kind == "local" and str(p.get("owner", "")) != ""):
 			out.append(p)
 	return out
 
