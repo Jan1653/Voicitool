@@ -1,5 +1,12 @@
 [
   {
+    "build": 56,
+    "date": "2026-09-26",
+    "changes": [
+      "Select several clips and merge them into one: right click, or the M key. The first clip keeps its recording."
+    ]
+  },
+  {
     "build": 55,
     "date": "2026-09-26",
     "changes": [

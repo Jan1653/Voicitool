@@ -3030,7 +3030,7 @@ list.addEventListener('contextmenu', e => {
   if (!el || e.target.tagName === 'TEXTAREA') return; // im Textfeld normales Browser-Menü
   e.preventDefault();
   const l = lineById(el.dataset.id);
-  selectLine(l.id, { scroll: false });
+  if (isSel(l.id)) focusInSel(l.id); else selectLine(l.id, { scroll: false });
   openMenu(lineMenu(l, l.chars[0], video.currentTime), e.clientX, e.clientY);
 });
 list.addEventListener('focusin', e => { if (e.target.tagName === 'TEXTAREA') { snapshot(); autoGrow(e.target); } });
@@ -3398,6 +3398,38 @@ function mergeLine(l) {
   if (fitLine(l, l.start + 0.001) === 'trimmed') toast(TRIM_MSG);
   afterChange(null);
   selectLine(l.id);
+}
+
+/** Alle ausgewählten Zeilen zu einer zusammenführen. Der Zeitraum reicht von der ersten bis zur
+    letzten, die Texte kommen in dieser Reihenfolge hintereinander, alle Sprecher der Auswahl
+    sprechen die neue Zeile. Die Aufnahme der ersten Zeile bleibt. */
+function mergeSelected() {
+  const lines = selectedLines().sort((a, b) => a.start - b.start);
+  if (lines.length < 2) return;
+  const keep = lines[0], gone = new Set(lines.slice(1).map(o => o.id));
+  snapshot();
+  keep.end = Math.max(...lines.map(o => o.end));
+  keep.text = lines.map(o => (o.text || '').trim()).filter(Boolean).join(' ');
+  lines.slice(1).forEach(o => o.chars.forEach(c => { if (!keep.chars.includes(c)) keep.chars.push(c); }));
+  S.p.lines = S.p.lines.filter(o => !gone.has(o.id));
+  delete keep.repeat_of;   // der Zeitraum ist jetzt ein anderer: eigene Aufnahme
+  const freed = S.p.lines.filter(o => o.repeat_of && (gone.has(o.repeat_of) || o.repeat_of === keep.id));
+  freed.forEach(o => delete o.repeat_of);
+  S.multi.clear();
+  const fit = fitLine(keep, keep.start + 0.001);
+  afterChange(null);
+  selectLine(keep.id);
+  const extra = (fit === 'trimmed' ? ' ' + TRIM_MSG : '')
+    + (freed.length ? ' ' + tf('{} Wiederholung(en) haben jetzt eine eigene Aufnahme.', freed.length) : '');
+  toast(tf('{} Zeilen zu einer zusammengeführt.', lines.length) + extra, false, extra ? 6000 : undefined);
+}
+
+/** Rechtsklick auf eine Zeile der Mehrfachauswahl: Auswahl bleibt, nur die Hauptzeile wechselt. */
+function focusInSel(id) {
+  if (S.sel === id) return;
+  if (S.sel) S.multi.add(S.sel);
+  S.multi.delete(id);
+  selectLine(id, { scroll: false, reveal: false, keep: true });
 }
 
 /** Neue Zeile bei t. Passt sich an die Stimme an, falls dort gesprochen wird. */
@@ -4490,12 +4522,15 @@ const charItems = (fn, current = []) => S.p.characters.map((c, i) => ({
 /** Menü für eine Zeile. laneChar = Sprecher-Spur, t = Zeitpunkt (fürs Teilen). */
 function lineMenu(l, laneChar, t) {
   const inside = t > l.start + 0.1 && t < l.end - 0.1;
+  const many = isSel(l.id) ? selectedLines().length : 0;
   const others = S.p.characters.filter(c => !l.chars.includes(c.id));
   return [
     { label: 'Abspielen', key: 'Enter', action: () => playRange(l.start, l.end) },
     { sep: true },
     { label: 'Hier teilen', key: 'S', disabled: !inside, action: () => splitLine(l, t) },
-    { label: `Mit nächster Zeile von ${charById(l.chars[0])?.name || '…'} zusammenführen`, key: 'M', action: () => mergeLine(l) },
+    many > 1
+      ? { label: `${many} Zeilen zusammenführen`, key: 'M', action: () => mergeSelected() }
+      : { label: `Mit nächster Zeile von ${charById(l.chars[0])?.name || '…'} zusammenführen`, key: 'M', action: () => mergeLine(l) },
     { label: 'An Stimme anpassen', action: () => fitToVoice(l) },
     l.repeat_of
       ? { label: 'Wiederholung lösen (eigene Aufnahme)', icon: 'repeat', action: () => { snapshot(); delete l.repeat_of; afterChange(null); } }
@@ -5135,7 +5170,7 @@ cv.addEventListener('contextmenu', e => {
     return;
   }
   if (h.line) {
-    selectLine(h.line.id, { reveal: false });
+    if (isSel(h.line.id)) focusInSel(h.line.id); else selectLine(h.line.id, { reveal: false });
     openMenu(lineMenu(h.line, h.line.chars.find(c => laneOf(c) === h.laneIdx) || h.line.chars[0], t), e.clientX, e.clientY);
   } else if (h.kind === 'empty') {
     openMenu(emptyMenu(t, charOfLane(h.laneIdx)), e.clientX, e.clientY);
@@ -5222,7 +5257,7 @@ document.addEventListener('keydown', e => {
   else if ((k === 'i' || k === 'I') && sel) lineAction(sel.id, 'sP');
   else if ((k === 'o' || k === 'O') && sel) lineAction(sel.id, 'eP');
   else if ((k === 's' || k === 'S') && sel) splitLine(sel, video.currentTime);
-  else if ((k === 'm' || k === 'M') && sel) mergeLine(sel);
+  else if ((k === 'm' || k === 'M') && sel) (selectedLines().length > 1 ? mergeSelected() : mergeLine(sel));
   else if (k === 'n' || k === 'N') { e.preventDefault(); addLineAt(video.currentTime); }
   else if ((k === 'Delete' || k === 'Backspace') && sel) { e.preventDefault(); lineAction(sel.id, 'del'); }
   else if (/^[1-9]$/.test(k) && sel) {
