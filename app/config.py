@@ -78,6 +78,25 @@ def credit_text(credits):
     return f"Made with {APP_NAME}"
 
 
+# Leise Kennzeichnung in den Metadaten jeder erzeugten Datei (Video, Ton, Bilder). Sie steht nur in
+# den Eigenschaften der Datei, nicht im Pack, und ist unabhängig vom Credits-Schalter: so lässt sich
+# später noch nachsehen, womit eine Datei gemacht wurde. Kein Name, kein Pfad, nichts Persönliches.
+SIGNATURE = f"{APP_NAME} {APP_VERSION}"
+
+
+def file_tags(credit=None):
+    """Metadaten für eine erzeugte Datei. credit: der sichtbare Credit-Text, wenn er eingeschaltet ist."""
+    return {"software": SIGNATURE, "comment": f"{credit} · {SIGNATURE}" if credit else SIGNATURE}
+
+
+def ffmpeg_tags(credit=None):
+    """Dieselben Metadaten als ffmpeg-Argumente."""
+    out = []
+    for key, value in file_tags(credit).items():
+        out += ["-metadata", f"{key}={value}"]
+    return out
+
+
 def _setup_ffmpeg():
     """Mitgeliefertes ffmpeg 7.1 (imageio-ffmpeg) als tools/ffmpeg/ffmpeg.exe bereitstellen.
 

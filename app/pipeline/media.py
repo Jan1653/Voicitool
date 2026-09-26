@@ -134,13 +134,13 @@ def _encode_h264(build, dst, duration, on_progress):
                 raise
 
 
-def mux_video(video_src, audio_src, dst, duration, on_progress=None):
+def mux_video(video_src, audio_src, dst, duration, on_progress=None, tag=None):
     """Video mit einer neuen Tonspur als MP4 schreiben (H.264/AAC, überall abspielbar)."""
     def build(venc):
         return [FFMPEG, "-y", "-v", "error", "-i", str(video_src), "-i", str(audio_src),
                 "-map", "0:v:0", "-map", "1:a:0", "-vf", "scale=-2:'trunc(min(1080,ih)/2)*2'", *venc,
                 "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-shortest",
-                "-movflags", "+faststart", str(dst)]
+                "-movflags", "+faststart", *config.ffmpeg_tags(tag), str(dst)]
 
     _encode_h264(build, dst, duration, on_progress or (lambda p: None))
 
@@ -181,8 +181,7 @@ def encode_ogv(src, dst, duration, max_height, max_fps, quality, on_progress, au
     else:
         cmd += ["-map", "0:v:0"]
     cmd += ["-vf", vf, "-r", str(fps), "-pix_fmt", "yuv420p", "-c:v", "libtheora", "-q:v", str(quality), "-map_metadata", "-1"]
-    if tag:
-        cmd += ["-metadata", f"comment={tag}"]
+    cmd += config.ffmpeg_tags(tag)
     cmd.append(str(dst))
     run_with_progress(cmd, duration, on_progress)
 
@@ -190,6 +189,19 @@ def encode_ogv(src, dst, duration, max_height, max_fps, quality, on_progress, au
 def grab_frame(src, t, dst, width=640):
     run([FFMPEG, "-y", "-v", "error", "-ss", f"{max(0.0, t):.3f}", "-i", str(src), "-frames:v", "1",
          "-vf", f"scale={int(width)}:-2", "-q:v", "3", str(dst)])
+    sign_image(dst)
+
+
+def sign_image(path):
+    """Kennzeichnung in ein fertiges Bild schreiben (EXIF „Software“). Schlägt es fehl, bleibt das Bild wie es ist."""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            exif = im.getexif()
+            exif[0x0131] = config.SIGNATURE          # Software
+            im.save(path, quality=92, exif=exif)
+    except Exception:
+        pass
 
 
 # Standbild je Zeile. Das Bild kurz nach dem Zeilenanfang passt fast immer (in 12 Testprojekten
@@ -280,7 +292,10 @@ def pick_frame(src, start, end, dst, size, fps, width=640):
         take = max(cand, key=lambda i: (marks[i]["sharp"] / top
                                         - (1.0 if marks[i]["empty"] or marks[i]["blend"] else 0.0)
                                         - 0.5 * abs(times[i] - t0), -abs(times[i] - t0)))
-    Image.fromarray(fr[take]).save(dst, quality=82)
+    img = Image.fromarray(fr[take])
+    exif = img.getexif()
+    exif[0x0131] = config.SIGNATURE   # Software, siehe sign_image
+    img.save(dst, quality=82, exif=exif)
 
 
 def load_mono(path, sr=16000, start=None, dur=None):

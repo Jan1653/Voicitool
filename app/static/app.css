@@ -349,6 +349,16 @@ body.resizing, body.resizing * { user-select: none; cursor: inherit; }
 .rep:hover { border-color: var(--accent3); }
 .line.repeat textarea { opacity: .75; }
 .line.sel { border-color: var(--accent); border-left-color: var(--c, var(--accent)); background: var(--sel); }
+/* Übersetzen: Zielsprache und Weg */
+.tr-box { display: block; }
+.tr-lang { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+.tr-select { flex: 1; min-width: 0; }
+.tr-ways { display: flex; flex-direction: column; gap: 6px; }
+.tr-ways .radio.off { opacity: .55; }
+
+/* Selbst gewähltes Bild einer Zeile: kleine Vorschau im Kopf */
+.line-img { height: 26px; width: 46px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
+
 /* mit Strg dazugewaehlt: heller Rand, aber keine Knopfleiste */
 .line.msel { background: var(--sel); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 /* Leiste, solange mehrere Zeilen ausgewählt sind */
@@ -531,6 +541,15 @@ legend { color: var(--muted); font-size: 12px; padding: 0 4px; }
 .ctx-sub { display: none; position: absolute; left: 100%; top: -5px; min-width: 190px; background: var(--menu); border: 1px solid var(--line); border-radius: 8px; padding: 4px; box-shadow: 0 10px 30px var(--shadow); color: var(--text); }
 .ctx.flip .ctx-sub { left: auto; right: 100%; }
 .ctx-item.has-sub:hover > .ctx-sub { display: block; }
+
+/* Icon zuschneiden: quadratische Vorschau, Regler darunter */
+.crop-wrap { display: block; }
+.crop-canvas { display: block; width: 320px; max-width: 100%; aspect-ratio: 1; margin: 6px auto 8px;
+  border-radius: 12px; background: #000; cursor: grab; touch-action: none; }
+.crop-canvas:active { cursor: grabbing; }
+.crop-row { display: flex; gap: 10px; align-items: center; width: 320px; max-width: 100%; margin: 0 auto; }
+.crop-zoom { flex: 1; min-width: 0; }
+.crop-hint { display: block; margin-top: 8px; text-align: center; }
 
 /* Eigene Dialoge (statt der Browser-Fenster für Bestätigen, Umbenennen, Warnungen) */
 .dlg-overlay { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center;

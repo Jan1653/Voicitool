@@ -108,9 +108,10 @@ def write_ogg(path, data, sr, tag=None, block=16384):
     """
     channels = 1 if data.ndim == 1 else data.shape[1]
     with sf.SoundFile(path, "w", sr, channels, format="OGG", subtype="VORBIS") as f:
-        if tag:
-            f.comment = tag
-            f.software = config.APP_NAME
+        # Die Kennzeichnung steht immer drin, der Credit-Text nur, wenn er eingeschaltet ist
+        tags = config.file_tags(tag)
+        f.comment = tags["comment"]
+        f.software = tags["software"]
         for i in range(0, len(data), block):
             f.write(data[i:i + block])
 
@@ -314,7 +315,11 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
         image = None
         mode = opts["image_mode"]
         img_char = next((chars[c] for c in ln["chars"] if c in chars and chars[c].get("image")), None)
-        if mode == "charakter" and img_char and (d / "bilder" / img_char["image"]).exists():
+        # Selbst gewähltes Bild dieser Zeile hat immer Vorrang
+        if ln.get("image") and (d / "bilder" / ln["image"]).exists():
+            image = f"{base}.jpg"
+            shutil.copyfile(d / "bilder" / ln["image"], tmp / image)
+        elif mode == "charakter" and img_char and (d / "bilder" / img_char["image"]).exists():
             image = f"Bild_{_file_part(img_char['name'])}.jpg"  # ein Bild pro Charakter, von allen Zeilen genutzt
             if not (tmp / image).exists():
                 shutil.copyfile(d / "bilder" / img_char["image"], tmp / image)

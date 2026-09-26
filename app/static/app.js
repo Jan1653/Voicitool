@@ -2878,6 +2878,7 @@ function lineHtml(l, i) {
       ${extras}
       <span class="ltime ${dur > 59 ? 'long' : ''}" title="Zum Zeilenanfang springen">${fmt(l.start)} → ${fmt(l.end)} · ${dur.toFixed(1)} s</span>
       <div class="spacer"></div>
+      ${l.image ? `<img class="line-img" src="${imgUrl(l.image)}" alt="" title="${esc(tf('Eigenes Bild dieser Zeile'))}">` : ''}
       <button class="icon-btn play" title="Zeile abspielen (Enter)">${ic('play')}</button>
     </div>
     <textarea data-nolang class="${l.text.trim() ? '' : 'empty-text'}" rows="1" spellcheck="true" placeholder="Text / Untertitel">${esc(l.text)}</textarea>
@@ -2887,6 +2888,7 @@ function lineHtml(l, i) {
       <button data-a="split" title="Am Playhead teilen (S)">${ic('scissors')}<span>Aufteilen</span></button>
       <button data-a="merge" title="Mit nächster Zeile zusammenführen (M)">${ic('merge')}<span>Zusammen</span></button>
       <button data-a="retrans" title="Text dieser Zeile neu erkennen">${ic('retranscribe')}<span>Text neu</span></button>
+      <button data-a="pic" title="${esc(l.image ? tf('Anderes Bild vom Playhead nehmen') : tf('Bild dieser Zeile selbst wählen: Playhead an die gewünschte Stelle, dann hier'))}">${ic('image')}<span>${esc(l.image ? tf('Bild neu') : tf('Bild'))}</span></button>${l.image ? `<button data-a="nopic" title="${esc(tf('Wieder das automatisch gewählte Bild nehmen'))}">${ic('undo')}<span>${esc(tf('Bild raus'))}</span></button>` : ''}
       <select data-a="addchar" title="Zweiten Sprecher hinzufügen (spricht gleichzeitig)"><option value="">+ Sprecher</option>${S.p.characters.filter(c => !l.chars.includes(c.id)).map(c => `<option data-nolang value="${c.id}">${esc(c.name)}</option>`).join('')}${S.p.characters.some(c => !l.chars.includes(c.id)) && S.p.characters.length > 2 ? `<option value="__all">${esc(tf('Alle Sprecher (Chor)'))}</option>` : ''}</select>
       <div class="spacer"></div>
       <button data-a="del" title="Zeile löschen (Entf)">${ic('trash')}</button>
@@ -3254,6 +3256,13 @@ function lineAction(id, a) {
     case 'split': return splitLine(l, t);
     case 'merge': return mergeLine(l);
     case 'retrans': return retranscribe(l);
+    case 'pic': return pickLineImage(l, t);
+    case 'nopic':
+      snapshot();
+      delete l.image;
+      refreshLine(id);
+      scheduleSave();
+      return;
     case 'voice': return fitToVoice(l);
     case 'copy': return copyLine(l);
     case 'cut': return copyLine(l, true);
@@ -3263,6 +3272,20 @@ function lineAction(id, a) {
   if (!ok) return;
   afterChange(id);
   if (a.startsWith('s')) seek(l.start);
+}
+
+/* Bild einer Zeile selbst wählen. Sonst sucht der Export das Bild automatisch kurz nach dem
+   Zeilenanfang; manchmal passt die Einstellung dort aber nicht zur Szene. */
+async function pickLineImage(l, t) {
+  try {
+    const r = await api('POST', `/api/projects/${encodeURIComponent(S.pid)}/frame`,
+                        { time: t, target: `zeile_${S.p.lines.indexOf(l) + 1}` });
+    snapshot();
+    l.image = r.image;
+    refreshLine(l.id);
+    scheduleSave();
+    toast(tf('Bild für Zeile {} gespeichert.', S.p.lines.indexOf(l) + 1));
+  } catch (e) { toast(e.message, true); }
 }
 
 async function deleteLine(l, ask = true) {
@@ -3404,6 +3427,85 @@ $('#btnRepeats').onclick = async () => {
 };
 
 /* Lachen suchen (bestehendes Projekt) */
+
+/* ---------- Zeilen übersetzen ----------
+   Der Ton bleibt, wie er ist: übersetzt wird nur der Text, den die Spieler beim Nachsprechen lesen.
+   So entsteht aus einem Video dasselbe Pack in mehreren Sprachen. Das Original bleibt in „text_src“
+   stehen, damit eine zweite Übersetzung wieder davon ausgeht und man zurück kann. */
+
+$('#btnTranslate').onclick = async () => {
+  const btn = $('#btnTranslate');
+  btn.disabled = true;
+  try {
+    await flushSave();
+    const info = await api('GET', `/api/projects/${encodeURIComponent(S.pid)}/translate`);
+    const from = info.language ? (info.languages[info.language] || info.language) : null;
+    const hasOrig = S.p.lines.some(l => l.text_src);
+    const opts = Object.entries(info.languages).filter(([code]) => code !== info.language)
+      .map(([code, name]) => `<option value="${code}">${esc(name)}</option>`).join('');
+    const ways = info.methods.map((m, i) => `<label class="radio${m.ready ? '' : ' off'}">
+        <input type="radio" name="trWay" value="${m.id}" ${m.ready && !info.methods.slice(0, i).some(x => x.ready) ? 'checked' : ''} ${m.ready ? '' : 'disabled'}>
+        ${esc(tf(m.name))}${m.service ? ` (${esc(m.service)})` : ''} <span class="muted small">${esc(tf(m.hint))}</span></label>`).join('');
+    const ask = dialog({
+      title: tf('Zeilen übersetzen'),
+      icon: 'globe',
+      wide: true,
+      html: `<span class="tr-box">
+          <span class="small muted">${esc(from ? tf('Erkannte Sprache: {}. Der Ton bleibt unverändert, nur der Text wird übersetzt.', from)
+                                              : tf('Der Ton bleibt unverändert, nur der Text wird übersetzt.'))}</span>
+          <label class="tr-lang">${esc(tf('Zielsprache'))} <select class="tr-select">${opts}</select></label>
+          <span class="tr-ways">${ways}</span>
+        </span>`,
+      buttons: [...(hasOrig ? [{ label: tf('Original zurück'), value: 'orig', side: 'left' }] : []),
+                { label: tf('Abbrechen'), value: null }, { label: tf('Übersetzen'), value: true, main: true }],
+    });
+    // Felder jetzt merken: nach dem Schließen sind sie nicht mehr in der Seite
+    const sel = $('.tr-select');
+    const radios = [...document.querySelectorAll('input[name="trWay"]')];
+    const v = await ask;
+    if (v === 'orig') return restoreOriginal();
+    if (!v) return;
+    const target = sel.value;
+    const method = (radios.find(r => r.checked) || {}).value || 'free';
+    const { job } = await api('POST', `/api/projects/${encodeURIComponent(S.pid)}/translate`, { target, method });
+    toast(tf('Wird übersetzt … (Fortschritt oben rechts)'));
+    const res = await waitJob(job);
+    applyTranslation(res);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
+};
+
+function applyTranslation(res) {
+  const got = new Map((res.lines || []).map(x => [x.id, x.text]));
+  let changed = 0;
+  snapshot();
+  for (const l of S.p.lines) {
+    const t = (got.get(l.id) || '').trim();
+    if (!t || t === l.text) continue;
+    if (!l.text_src) l.text_src = l.text;   // Original merken, nur beim ersten Mal
+    l.text = t;
+    changed++;
+  }
+  if (!changed) { S.undo.pop(); return toast(tf('Es kam keine Übersetzung zurück.'), true); }
+  afterChange(null, true);
+  const miss = res.leer ? ' ' + tf('{} Zeilen blieben ohne Text.', res.leer) : '';
+  toast(tf('{} Zeilen übersetzt ({}).', changed, res.source) + miss + ' ' + tf('Strg+Z macht es rückgängig.'), false, 6000);
+}
+
+function restoreOriginal() {
+  snapshot();
+  let n = 0;
+  for (const l of S.p.lines) {
+    if (!l.text_src) continue;
+    l.text = l.text_src;
+    delete l.text_src;
+    n++;
+  }
+  if (!n) { S.undo.pop(); return; }
+  afterChange(null, true);
+  toast(tf('{} Zeilen wieder im Original.', n));
+}
+
 $('#btnLaughs').onclick = async () => {
   const btn = $('#btnLaughs');
   btn.disabled = true;
@@ -3797,12 +3899,140 @@ $('#tab-export').addEventListener('change', e => {
   if (e.target.id === 'instFile') return;
   if (e.target.closest('.form')) { readExportForm(); renderExportChecks(); }
 });
+
+/* ---------- Pack-Icon zuschneiden ----------
+   Das Spiel zeigt das Icon quadratisch. Hier wird der Ausschnitt gewählt: schieben, zoomen, fertig ist
+   ein 432x432-Bild. Die Quelle ist das aktuelle Videobild oder ein Bild, das schon im Projekt liegt. */
+const ICON_SIZE = 432;
+
+function loadImage(src) {
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => rej(new Error(tf('Das Bild lässt sich nicht laden.')));
+    im.src = src;
+  });
+}
+
+/** Das aktuelle Videobild als Bild, ohne Umweg über den Server. */
+function frameFromVideo() {
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth || 1280;
+  c.height = video.videoHeight || 720;
+  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+  return loadImage(c.toDataURL('image/jpeg', 0.95));
+}
+
+/**
+ * Zuschneide-Fenster. img: Bild, das zugeschnitten wird.
+ * -> Blob (JPEG, ICON_SIZE x ICON_SIZE) oder null bei Abbruch.
+ */
+async function cropDialog(img, title) {
+  const view = 320;                                    // Anzeigegröße im Fenster
+  const cover = Math.max(view / img.width, view / img.height);   // füllt das Quadrat
+  const contain = Math.min(view / img.width, view / img.height); // ganzes Bild, mit Rändern
+  let scale = cover, ox = (view - img.width * cover) / 2, oy = (view - img.height * cover) / 2;
+
+  const p = dialog({
+    title: title || tf('Ausschnitt fürs Icon'),
+    icon: 'image',
+    html: `<span class="crop-wrap">
+        <canvas class="crop-canvas" width="${view * 2}" height="${view * 2}"></canvas>
+        <span class="crop-row"><button type="button" class="btn small crop-fit">${esc(tf('Ganzes Bild'))}</button>
+          <input class="crop-zoom" type="range" min="0" max="1000" value="0" aria-label="${esc(tf('Zoom'))}"></span>
+        <span class="crop-hint small muted">${esc(tf('Bild schieben, mit dem Regler näher heran. Daraus wird ein Bild mit 432 x 432 Punkten.'))}</span>
+      </span>`,
+    buttons: [{ label: tf('Abbrechen'), value: null }, { label: tf('Übernehmen'), value: true, main: true }],
+  });
+  const wrap = $('.crop-wrap');
+  const cv = $('.crop-canvas', wrap);
+  const zoom = $('.crop-zoom', wrap);
+  const ctx = cv.getContext('2d');
+
+  const clamp = () => {
+    const w = img.width * scale, h = img.height * scale;
+    ox = w <= view ? (view - w) / 2 : Math.min(0, Math.max(view - w, ox));
+    oy = h <= view ? (view - h) / 2 : Math.min(0, Math.max(view - h, oy));
+  };
+  const draw = () => {
+    clamp();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, ox * 2, oy * 2, img.width * scale * 2, img.height * scale * 2);
+  };
+  const setScale = (s, px = view / 2, py = view / 2) => {
+    const before = scale;
+    scale = Math.min(cover * 4, Math.max(contain, s));
+    // um den Punkt zoomen, der in der Mitte war
+    ox = px - (px - ox) * (scale / before);
+    oy = py - (py - oy) * (scale / before);
+    zoom.value = String(Math.round(1000 * (scale - contain) / Math.max(1e-6, cover * 4 - contain)));
+    draw();
+  };
+  setScale(cover);
+
+  zoom.oninput = () => setScale(contain + (cover * 4 - contain) * (Number(zoom.value) / 1000));
+  $('.crop-fit', wrap).onclick = () => setScale(contain);
+  cv.onwheel = (e) => { e.preventDefault(); setScale(scale * (e.deltaY < 0 ? 1.12 : 1 / 1.12)); };
+  let drag = null;
+  cv.onpointerdown = (e) => { drag = { x: e.clientX, y: e.clientY, ox, oy }; cv.setPointerCapture(e.pointerId); };
+  cv.onpointermove = (e) => {
+    if (!drag) return;
+    const r = cv.getBoundingClientRect();
+    const k = view / r.width;   // Anzeige kann kleiner sein als 320 Punkte
+    ox = drag.ox + (e.clientX - drag.x) * k;
+    oy = drag.oy + (e.clientY - drag.y) * k;
+    draw();
+  };
+  cv.onpointerup = cv.onpointercancel = () => { drag = null; };
+
+  if (!await p) return null;
+  const out = document.createElement('canvas');
+  out.width = out.height = ICON_SIZE;
+  const o = out.getContext('2d');
+  o.fillStyle = '#000';
+  o.fillRect(0, 0, ICON_SIZE, ICON_SIZE);
+  o.imageSmoothingQuality = 'high';
+  const k = ICON_SIZE / view;
+  o.drawImage(img, ox * k, oy * k, img.width * scale * k, img.height * scale * k);
+  return new Promise(res => out.toBlob(res, 'image/jpeg', 0.92));
+}
+
+/** Zugeschnittenes Bild hochladen. -> Dateiname im Projekt */
+async function uploadImage(blob, target) {
+  const fd = new FormData();
+  fd.append('file', blob, 'bild.jpg');
+  fd.append('target', target);
+  const r = await fetch(`/api/projects/${encodeURIComponent(S.pid)}/bild`, { method: 'POST', body: fd });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || tf('Das Bild ließ sich nicht speichern.'));
+  return (await r.json()).image;
+}
+
 $('#btnIconFrame').onclick = async () => {
   try {
     const r = await api('POST', `/api/projects/${encodeURIComponent(S.pid)}/frame`, { time: video.currentTime, target: 'icon' });
-    S.p.pack.icon = r.image; $('#exIconImg').src = imgUrl(r.image); $('#exIconImg').style.visibility = 'visible'; scheduleSave();
+    setIcon(r.image);
   } catch (e) { toast(e.message, true); }
 };
+
+/** Ausschnitt wählen: aus dem aktuellen Videobild oder aus dem Icon, das schon da ist. */
+$('#btnIconCrop').onclick = async () => {
+  try {
+    const src = S.p.pack.icon ? await loadImage(imgUrl(S.p.pack.icon) + '?v=' + Date.now()) : await frameFromVideo();
+    const blob = await cropDialog(src);
+    if (!blob) return;
+    setIcon(await uploadImage(blob, 'icon'));
+    toast(tf('Icon gespeichert ({} x {}).', ICON_SIZE, ICON_SIZE));
+  } catch (e) { toast(e.message, true); }
+};
+
+function setIcon(name) {
+  S.p.pack.icon = name;
+  $('#exIconImg').src = imgUrl(name) + '?v=' + Date.now();
+  $('#exIconImg').style.visibility = 'visible';
+  scheduleSave();
+}
 
 function renderInstrumental() {
   const i = S.p.instrumental;

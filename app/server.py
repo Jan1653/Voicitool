@@ -1193,6 +1193,26 @@ def grab_frame(pid: str, body: dict = Body(...)):
     return {"image": name}
 
 
+MAX_IMAGE = 8 << 20   # zugeschnittene Bilder aus der Oberfläche
+
+
+@app.post("/api/projects/{pid}/bild")
+async def upload_project_image(pid: str, file: UploadFile = File(...), target: str = Form("bild")):
+    """Fertig zugeschnittenes Bild aus der Oberfläche übernehmen (Pack-Icon, Bild einer Zeile)."""
+    from app.pipeline import media
+    d = project.project_dir(pid)
+    (d / "bilder").mkdir(exist_ok=True)
+    data = await file.read(MAX_IMAGE + 1)
+    if len(data) > MAX_IMAGE:
+        raise HTTPException(413, "Das Bild ist zu groß.")
+    if not data.startswith(b"\xff\xd8"):
+        raise HTTPException(400, "Nur JPEG-Bilder.")
+    name = f"{re.sub(r'[^a-zA-Z0-9_-]', '', target) or 'bild'}_{int(time.time() * 1000)}.jpg"
+    (d / "bilder" / name).write_bytes(data)
+    media.sign_image(d / "bilder" / name)
+    return {"image": name}
+
+
 @app.post("/api/projects/{pid}/instrumental")
 async def upload_instrumental(pid: str, file: UploadFile = File(...)):
     """Eigene Instrumental-Version hochladen und automatisch auf das Video ausrichten."""
@@ -1434,6 +1454,33 @@ def retranscribe(pid: str, body: dict = Body(...)):
         return {"text": text, "line": body.get("line")}
 
     return {"job": jobs.submit("retranscribe", pid, run, f"Text neu erkennen: {_name(pid)}")}
+
+
+@app.get("/api/projects/{pid}/translate")
+def translate_methods(pid: str):
+    """Welche Sprachen und welche Wege es für dieses Projekt gibt."""
+    from app.pipeline import translate
+    data = project.load(pid)
+    return {"languages": translate.LANGS, "methods": translate.methods(data), "language": data.get("language")}
+
+
+@app.post("/api/projects/{pid}/translate")
+def translate_lines(pid: str, body: dict = Body(...)):
+    """Alle Zeilen in eine andere Sprache bringen. Der Text kommt zurück, eingesetzt wird in der Oberfläche."""
+    from app.pipeline import translate
+    target, method = str(body.get("target") or ""), str(body.get("method") or "free")
+
+    def run(job, report):
+        data = project.load(pid)
+        report("Übersetzen", 0.05, translate.lang_name(target))
+        res = translate.run(data, target, method, lambda p: report("Übersetzen", 0.05 + 0.9 * p, translate.lang_name(target)))
+        report("Übersetzen", 1.0, "")
+        lines = data.get("lines") or []
+        return {"lines": [{"id": ln.get("id"), "text": res["texts"][i]} for i, ln in enumerate(lines)],
+                "source": res["source"], "leer": res["leer"], "target": target}
+
+    # Netz-Spur: Übersetzen wartet nur auf einen Dienst und soll keine Verarbeitung aufhalten
+    return {"job": jobs.submit("translate", pid, run, f"Übersetzen: {_name(pid)}", lane="net")}
 
 
 @app.post("/api/projects/{pid}/laughs")

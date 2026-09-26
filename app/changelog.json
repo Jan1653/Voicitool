@@ -1,5 +1,15 @@
 [
   {
+    "build": 55,
+    "date": "2026-09-26",
+    "changes": [
+      "Translate all line texts into another language: subtitles from YouTube, an online service with your own free key, or a free service without an account. The audio stays as it is.",
+      "Pack icon: choose the crop yourself. Drag and zoom, and it becomes a ready made 432 x 432 icon.",
+      "Every line can get its own screenshot: put the playhead where you want it and press the image button.",
+      "Files made with Voicitool now carry a quiet note in their properties, whether or not the credits are switched on."
+    ]
+  },
+  {
     "build": 54,
     "date": "2026-09-26",
     "changes": [
