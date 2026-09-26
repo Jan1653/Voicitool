@@ -614,12 +614,17 @@ func _upload_retry(code: int, body: PackedByteArray) -> void:
 		_up_done += have - _up_offset
 		_up_offset = have
 	_up_tries += 1
-	if code in [403, 404, 413, 507] or _up_tries > UPLOAD_TRIES:
+	# Antwort 0 heißt: gar keine Antwort, die Verbindung war weg. Das kommt meist zurück,
+	# deshalb wird hier deutlich länger versucht, bevor wir aufgeben.
+	var lost := code == 0
+	var allowed := UPLOAD_TRIES * 3 if lost else UPLOAD_TRIES
+	if code in [403, 404, 413, 507] or _up_tries > allowed:
 		_upload_failed(code, body)
 		return
-	var wait := minf(30.0, 2.0 * pow(2.0, _up_tries - 1))
+	var wait := minf(60.0 if lost else 30.0, 2.0 * pow(2.0, mini(_up_tries, 6) - 1))
 	_up_note = _t("Verbindung unterbrochen, neuer Versuch in {} s …", [int(wait)])
-	push_warning("Voicigame: Pack-Stück nicht angenommen (%d %s), Versuch %d" % [code, err, _up_tries])
+	push_warning("Voicigame: Pack-Stück nicht angenommen (%s), Versuch %d von %d"
+		% ["keine Verbindung" if lost else "%d %s" % [code, err], _up_tries, allowed])
 	_refresh()
 	get_tree().create_timer(wait).timeout.connect(_upload_step)
 
@@ -794,7 +799,8 @@ func _on_take_loaded(code: int, body: PackedByteArray, k: String) -> void:
 		return
 	var n := int(_take_fail.get(k, 0)) + 1
 	_take_fail[k] = n
-	push_warning("Voicigame: Handy-Aufnahme %s nicht geladen (%d), Versuch %d" % [k, code, n])
+	if n > 1:   # der erste Fehlversuch ist meist nur ein Zucken der Leitung
+		push_warning("Voicigame: Handy-Aufnahme %s nicht geladen (%d), Versuch %d von %d" % [k, code, n, TAKE_TRIES])
 	if n >= TAKE_TRIES:
 		_takes[k] = null
 	else:
@@ -1468,9 +1474,9 @@ func _start_local_export() -> bool:
 			break
 	if video_name == "":
 		return false
-	if web_file != "":
-		var got := PackWeb.extract(web_file, video_name, work.path_join("video.mp4"))
-		if got:
+	# Nur ein wirklich umgewandeltes Video darf unverändert übernommen werden
+	if web_file != "" and PackWeb.asset_mime(web_file, video_name) == "video/mp4":
+		if PackWeb.extract(web_file, video_name, work.path_join("video.mp4")):
 			video = work.path_join("video.mp4")
 			copy_video = true
 	if video == "":

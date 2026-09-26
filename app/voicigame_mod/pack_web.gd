@@ -75,6 +75,32 @@ static func _find_ffmpeg() -> String:
 	return ""
 
 
+## ffmpeg soll sein Protokoll in eine Datei schreiben: ohne das sieht man nie, woran ein Fehler lag.
+## Die Umgebungsvariable erbt der nächste gestartete Prozess.
+static func want_report(file: String) -> void:
+	OS.set_environment("FFREPORT", "file=%s:level=24" % file.replace(":", "\\:"))
+
+
+static func stop_report() -> void:
+	OS.set_environment("FFREPORT", "")
+
+
+## Der Grund aus dem ffmpeg-Protokoll, kurz gefasst. "" = nichts gefunden.
+static func report_reason(file: String) -> String:
+	if not FileAccess.file_exists(file):
+		return ""
+	var text := FileAccess.get_file_as_string(file)
+	var out: Array = []
+	for line in text.split("\n"):
+		var l := str(line).strip_edges()
+		if l == "" or l.begins_with("ffmpeg version") or l.begins_with("Report written"):
+			continue
+		if "rror" in l or "nvalid" in l or "No such" in l or "not found" in l or "Unknown" in l or "Permission" in l:
+			if not out.has(l):
+				out.append(l)
+	return " | ".join(PackedStringArray(out.slice(maxi(0, out.size() - 3)))).left(220)
+
+
 ## Fingerabdruck einer Dateiliste, genau wie fileInfoOf in server/src/dub.js.
 static func fingerprint(files: Array) -> String:
 	var lines: Array = []
@@ -114,6 +140,22 @@ static func manifest_of(file: String) -> Dictionary:
 	return j if j is Dictionary else {}
 
 
+## Liegt im fertigen Pack ein Video, das Browser wirklich abspielen? (Theora tut das nicht.)
+static func _video_ready(file: String) -> bool:
+	for a in manifest_of(file).get("assets", []):
+		if a is Dictionary and str(a.get("n", "")).get_basename().to_lower() == "dub_video":
+			return str(a.get("m", "")) in ["video/mp4", "video/webm"]
+	return true   # ein Pack ohne Video gibt es eigentlich nicht, dann eben so lassen
+
+
+## Typ einer Datei im fertigen Pack, "" = nicht drin.
+static func asset_mime(file: String, name: String) -> String:
+	for a in manifest_of(file).get("assets", []):
+		if a is Dictionary and str(a.get("n", "")) == name:
+			return str(a.get("m", ""))
+	return ""
+
+
 ## Eine Datei aus dem fertigen Pack herausschneiden. -> hat geklappt?
 static func extract(file: String, name: String, out: String) -> bool:
 	var m := manifest_of(file)
@@ -150,10 +192,13 @@ func start(pack_dir: String, files: Array, play: Array) -> void:
 	src_fp = fingerprint(files)
 	out_file = "%s/%s.vgpack" % [root(), src_fp]
 	if FileAccess.file_exists(out_file):
-		_touch(out_file)
-		state = "done"
-		progress = 1.0
-		return
+		# Ältere Packs, in denen das Video nicht umgewandelt wurde, taugen nichts: neu bauen
+		if _video_ready(out_file):
+			_touch(out_file)
+			state = "done"
+			progress = 1.0
+			return
+		DirAccess.remove_absolute(out_file)
 	_ffmpeg = ffmpeg_path()
 	if _ffmpeg == "":
 		state = "error"
@@ -252,7 +297,7 @@ func _video_step(name: String) -> Dictionary:
 	var args := ["-hide_banner", "-nostdin", "-y", "-threads", "2", "-i", _dir.path_join(name),
 		"-map", "0:v:0", "-an", "-vf", "scale=-2:'trunc(min(720,ih)/2)*2',format=yuv420p",
 		"-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-movflags", "+faststart", out]
-	return {"args": args, "out": [{"n": name, "file": out, "m": "video/mp4", "d": 0.0}]}
+	return {"args": args, "video": true, "out": [{"n": name, "file": out, "m": "video/mp4", "d": 0.0}]}
 
 
 func _batch_step(group: Array) -> Dictionary:
@@ -284,7 +329,16 @@ func _poll_convert() -> void:
 		var code := OS.get_process_exit_code(_pid)
 		_pid = -1
 		if code != 0:
-			push_warning("Voicigame: ffmpeg %d bei Schritt %d: %s" % [code, _step, " ".join(PackedStringArray(_steps[_step]["args"]))])
+			var why := report_reason(_work.path_join("ffmpeg.log"))
+			push_warning("Voicigame: ffmpeg %d beim Umwandeln fürs Browser-Pack: %s" % [code, why if why != "" else "kein Grund im Protokoll"])
+		DirAccess.remove_absolute(_work.path_join("ffmpeg.log"))
+		# Ohne umgewandeltes Video ist das ganze Pack nutzlos: Theora spielt kein Browser ab,
+		# und der Export könnte es auch nicht übernehmen. Dann macht es lieber der Server.
+		if bool(_steps[_step].get("video", false)) and not FileAccess.file_exists(str(_steps[_step]["out"][0]["file"])):
+			state = "error"
+			error = "video"
+			_clear(_work)
+			return
 		# Was da ist, wird übernommen. Eine Datei, die ffmpeg nicht geschafft hat, bleibt im Original.
 		for o in _steps[_step]["out"]:
 			if FileAccess.file_exists(str(o["file"])):
@@ -297,7 +351,9 @@ func _poll_convert() -> void:
 		if _step >= _steps.size():
 			state = "pack"
 			return
+	want_report(_work.path_join("ffmpeg.log"))
 	_pid = OS.create_process(_ffmpeg, _steps[_step]["args"])
+	stop_report()
 	if _pid <= 0:
 		state = "error"
 		error = "start"

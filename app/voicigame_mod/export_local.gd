@@ -11,6 +11,8 @@ extends RefCounted
 ##   e.start({...})
 ##   e.poll()      jeden Frame, bis state in ["done", "error"]
 
+const PackWeb = preload("pack_web.gd")
+
 const SR := 44100
 
 var state := ""                  # "" | run | done | error
@@ -117,7 +119,9 @@ func start(opts: Dictionary) -> void:
 	args.append_array(["-movflags", "+faststart", "-f", "mp4", _part])
 
 	_args = args
+	PackWeb.want_report(_work.path_join("ffmpeg.log"))
 	_pid = OS.create_process(str(opts.get("ffmpeg", "ffmpeg")), args)
+	PackWeb.stop_report()
 	if _pid <= 0:
 		state = "error"
 		error = "start"
@@ -136,7 +140,8 @@ func poll() -> void:
 	_pid = -1
 	if code != 0 or not FileAccess.file_exists(_part):
 		state = "error"
-		error = "ffmpeg %d" % code
+		var why := PackWeb.report_reason(_work.path_join("ffmpeg.log"))
+		error = "ffmpeg %d: %s" % [code, why if why != "" else "kein Grund im Protokoll"]
 		_keep_for_report(code)
 		return
 	if FileAccess.file_exists(out_file):
@@ -182,12 +187,13 @@ func _keep_for_report(code: int) -> void:
 	var f := FileAccess.open(_work.path_join("last_error.txt"), FileAccess.WRITE)
 	if f:
 		f.store_line("ffmpeg %d" % code)
+		f.store_line(error)
 		f.store_line(" ".join(PackedStringArray(_args)))
 		f.close()
 
 
 func _cleanup() -> void:
-	for name in ["progress.txt", "filter.txt"]:
+	for name in ["progress.txt", "filter.txt", "ffmpeg.log"]:
 		var p := _work.path_join(name)
 		if FileAccess.file_exists(p):
 			DirAccess.remove_absolute(p)
