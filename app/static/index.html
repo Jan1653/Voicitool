@@ -529,6 +529,17 @@
           <label class="radio"><input type="radio" name="clipSource" value="stimmen"> Nur Stimmen <span class="muted">(empfohlen, das Spiel bewertet die Wellenform)</span></label>
           <label class="radio"><input type="radio" name="clipSource" value="original"> Original-Ton mit Musik</label>
           <label class="radio" id="clipDiffRow" hidden><input type="radio" name="clipSource" value="differenz"> Original minus Instrumental <span class="muted">(exakte Stimmen)</span></label>
+          <label class="radio"><input type="radio" name="clipSource" value="vocal" id="clipVocalRadio" disabled> Eigene Vocal-Datei</label>
+          <div class="row">
+            <label class="btn small"><i data-ic="sound"></i><span>Vocal-Datei wählen</span><input type="file" id="vocFile" accept="audio/*,video/*" hidden></label>
+            <button class="btn small" id="btnVocManual" hidden title="KI-Stimmen und deine Vocal-Datei nebeneinander sehen, anhören und selbst verschieben">Von Hand ausrichten</button>
+            <button class="btn small danger" id="btnVocRemove" hidden>Entfernen</button>
+          </div>
+          <div class="url-row">
+            <input id="vocUrl" type="url" placeholder="oder Link zur Vocal-Version (YouTube und andere)" spellcheck="false">
+            <button class="btn small" id="btnVocUrl">Laden</button>
+          </div>
+          <div id="vocReport" class="small muted">Hast du die offizielle Vocal- oder A-cappella-Version? Dann wird sie automatisch auf das Video ausgerichtet und als Quelle für die Clips genutzt.</div>
           <label>Lautstärke
             <select id="exNormalize">
               <option value="lautheit">Alle Clips gleich laut (empfohlen)</option>

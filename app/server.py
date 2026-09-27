@@ -1166,7 +1166,7 @@ def media_file(pid: str, name: str):
     if f.parent != d:
         raise HTTPException(403)
     wav = f.with_suffix(".wav")
-    if not f.exists() and f.name in ("instrumental.ogg", "hintergrund.ogg") and wav.exists():
+    if not f.exists() and f.name in ("instrumental.ogg", "hintergrund.ogg", "vocal.ogg") and wav.exists():
         media.encode_opus(wav, f)   # ältere Projekte: Hörfassung für den Editor nachträglich anlegen
     if not f.exists():
         raise HTTPException(404)
@@ -1266,6 +1266,113 @@ def _align_instrumental(pid, target, report):
         data["export"]["clip_source"] = "differenz"
     project.save(pid, data)
     return info
+
+
+# ---------------------------------------------------------------- eigene Vocal-Datei (Quelle der Clips)
+def _align_vocal(pid, target, report):
+    from app.pipeline import instrumental
+    d = project.project_dir(pid)
+    info = instrumental.align_vocal(d, target, lambda p, msg="": report("Vocal-Datei angleichen", p, msg))
+    data = project.load(pid)
+    data["vocal"] = info
+    data["export"]["clip_source"] = "vocal"
+    project.save(pid, data)
+    return info
+
+
+@app.post("/api/projects/{pid}/vocal")
+async def upload_vocal(pid: str, file: UploadFile = File(...)):
+    """Eigene Vocal-/A-cappella-Version hochladen und automatisch auf das Video ausrichten."""
+    d = project.project_dir(pid)
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in config.AUDIO_EXTS | config.VIDEO_EXTS:
+        raise HTTPException(400, "Bitte eine Audio- oder Videodatei wählen (MP3, WAV, FLAC, M4A, MP4 …)")
+    for old in d.glob("vocal_quelle.*"):
+        old.unlink()
+    target = d / f"vocal_quelle{ext}"
+    with open(target, "wb") as f:
+        while chunk := await file.read(1 << 20):
+            f.write(chunk)
+
+    def run(job, report):
+        return _align_vocal(pid, target, report)
+
+    return {"job": jobs.submit("instrumental", pid, run, f"Vocal-Datei angleichen: {_name(pid)}", lane="cpu")}
+
+
+@app.post("/api/projects/{pid}/vocal_url")
+def vocal_from_url(pid: str, body: dict = Body(...)):
+    """Vocal-Datei direkt von einer Web-Adresse (YouTube u. a.) laden und ausrichten."""
+    from app.pipeline import download
+    url = (body.get("url") or "").strip()
+    if not download.valid_url(url):
+        raise HTTPException(400, "Bitte eine Adresse einfügen, die mit http:// oder https:// beginnt.")
+    d = project.project_dir(pid)
+
+    def run(job, report):
+        target, title = download.download_audio(url, d, lambda p, msg="": report("Vocal-Datei laden", p, msg), name="vocal")
+        info = _align_vocal(pid, target, report)
+        if title:
+            info["datei"] = title
+            data = project.load(pid)
+            data["vocal"] = info
+            project.save(pid, data)
+        return info
+
+    return {"job": jobs.submit("instrumental", pid, run, f"Vocal-Datei laden: {_name(pid)}", lane="net")}
+
+
+@app.get("/api/projects/{pid}/vocal/waves")
+def vocal_waves(pid: str):
+    from app.pipeline import instrumental
+    try:
+        return instrumental.waves(project.project_dir(pid), kind="vocal")
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/projects/{pid}/vocal/preview/{which}")
+def vocal_preview(pid: str, which: str):
+    from app.pipeline import instrumental
+    if which not in ("ref", "own"):
+        raise HTTPException(404)
+    try:
+        return FileResponse(instrumental.preview(project.project_dir(pid), which, kind="vocal"),
+                            headers={"Cache-Control": "no-cache"})
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/projects/{pid}/vocal/manual")
+def vocal_manual(pid: str, body: dict = Body(...)):
+    from app.pipeline import instrumental
+    try:
+        offset = float(body.get("offset", 0.0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Ungültiger Versatz")
+    if abs(offset) > 3600:
+        raise HTTPException(400, "Ungültiger Versatz")
+    try:
+        info = instrumental.manual(project.project_dir(pid), offset, kind="vocal")
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    data = project.load(pid)
+    data["vocal"] = info
+    data["export"]["clip_source"] = "vocal"
+    project.save(pid, data)
+    return info
+
+
+@app.delete("/api/projects/{pid}/vocal")
+def delete_vocal(pid: str):
+    from app.pipeline import instrumental
+    instrumental.remove(project.project_dir(pid), kind="vocal")
+    data = project.load(pid)
+    data.pop("vocal", None)
+    if data["export"].get("clip_source") == "vocal":
+        data["export"]["clip_source"] = "stimmen"
+    project.save(pid, data)
+    return {"ok": True}
 
 
 @app.get("/api/textsources/search")

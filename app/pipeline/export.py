@@ -279,9 +279,15 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
     # 2) Audio laden
     report("Clips schneiden", 0, "Audio laden")
     voc, sr = sf.read(d / "stimmen.wav", dtype="float32", always_2d=True)
-    source_file = {"original": d / "audio.wav", "differenz": d / "stimmen_diff.wav"}.get(opts["clip_source"])
+    source_file = {"original": d / "audio.wav", "differenz": d / "stimmen_diff.wav",
+                   "vocal": d / "vocal.wav"}.get(opts["clip_source"])   # vocal: eigene, ausgerichtete Vocal-Datei
     if source_file and source_file.exists():
-        clip_src = sf.read(source_file, dtype="float32", always_2d=True)[0]
+        clip_src, src_sr = sf.read(source_file, dtype="float32", always_2d=True)
+        if src_sr != sr:
+            warnings.append("Clip-Quelle hat eine andere Abtastrate, es werden die KI-getrennten Stimmen verwendet.")
+            clip_src = voc
+        elif opts["clip_source"] == "vocal":
+            warnings.append("Clips: eigene Vocal-Datei verwendet.")
     else:
         clip_src = voc  # getrennte Stimmen (Standard)
     mono = clip_src.mean(axis=1)
@@ -360,8 +366,12 @@ def _export_pack(pid, report, install=False, overwrite_game=False):
         back = back * vol
     if opts.get("keep_unused_voices", True):
         # Stimmen ohne Zeile beimischen, bei eigener Instrumental-Datei aus der Differenz (sauberer)
-        diff = d / "stimmen_diff.wav"
-        extra = sf.read(diff, dtype="float32", always_2d=True)[0] if (use_own and diff.exists()) else voc
+        # bei eigener Vocal-Datei als Clip-Quelle kommen sie aus ihr (am saubersten)
+        diff, own_voc = d / "stimmen_diff.wav", d / "vocal.wav"
+        if opts.get("clip_source") == "vocal" and own_voc.exists() and sf.info(own_voc).samplerate == bsr:
+            extra = sf.read(own_voc, dtype="float32", always_2d=True)[0]
+        else:
+            extra = sf.read(diff, dtype="float32", always_2d=True)[0] if (use_own and diff.exists()) else voc
         n = min(len(back), len(extra))
         mask = _coverage_mask(all_lines, n, bsr)
         back = back[:n] + extra[:n] * (1.0 - mask)[:, None]

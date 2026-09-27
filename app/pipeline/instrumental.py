@@ -316,8 +316,90 @@ def align(project_dir, source, on_progress=None):
     return info
 
 
-def source_file(project_dir):
-    return next(iter(sorted(project_dir.glob("instrumental_quelle.*"))), None)
+# Eigene Dateien: „inst“ = Instrumental (Hintergrund), „vocal“ = Vocal/A-cappella (Quelle der Clips).
+# (Dateiname ohne Endung, KI-Spur zum Vergleichen und Ausrichten von Hand)
+KINDS = {"inst": ("instrumental", "hintergrund.wav"), "vocal": ("vocal", "stimmen.wav")}
+
+
+def source_file(project_dir, kind="inst"):
+    return next(iter(sorted(project_dir.glob(f"{KINDS[kind][0]}_quelle.*"))), None)
+
+
+def _no_file(kind):
+    return RuntimeError("Es ist keine eigene Vocal-Datei gesetzt." if kind == "vocal"
+                        else "Es ist keine eigene Instrumental-Datei gesetzt.")
+
+
+def _vocal_level(project_dir, x, sr):
+    """Faktor, mit dem die Vocal-Datei so laut wird wie die KI-getrennten Stimmen (dort, wo beide klingen)."""
+    ref, rsr = sf.read(project_dir / "stimmen.wav", dtype="float32", always_2d=True)
+    a = np.sqrt((_frames(ref.mean(axis=1), sr=rsr) ** 2).mean(axis=1))
+    b = np.sqrt((_frames(x.mean(axis=1), sr=sr) ** 2).mean(axis=1))
+    n = min(len(a), len(b))
+    a, b = a[:n], b[:n]
+    on = (a > a.max() * 0.03) & (b > b.max() * 0.03)
+    if on.sum() < 50:
+        return 1.0
+    return float(np.clip(np.sqrt(np.mean(a[on] ** 2) / (np.mean(b[on] ** 2) + 1e-12)), 0.2, 5.0))
+
+
+def _match_vocal_level(project_dir, path):
+    x, sr = sf.read(path, dtype="float32", always_2d=True)
+    factor = _vocal_level(project_dir, x, sr)
+    x = x * factor
+    peak = float(np.abs(x).max())
+    if peak > 0.99:   # nicht übersteuern
+        factor *= 0.99 / peak
+        x = x * (0.99 / peak)
+    sf.write(path, x, sr, subtype="PCM_16")
+    return factor
+
+
+def align_vocal(project_dir, source, on_progress=None):
+    """Eigene Vocal-/A-cappella-Datei auf das Video ausrichten -> vocal.wav (+ Bericht).
+
+    Verglichen wird mit den KI-getrennten Stimmen: die passen zu einer Vocal-Datei viel besser als der ganze Ton."""
+    d = project_dir
+    report = lambda p, msg: on_progress and on_progress(p, msg)
+    report(0.05, "Dateien werden geladen …")
+    ref16 = media.load_mono(d / "stimmen.wav")
+    voc16 = media.load_mono(source)
+    if len(voc16) < SR:
+        raise RuntimeError("Die Vocal-Datei ist zu kurz oder enthält keinen Ton.")
+    report(0.3, "Versatz wird gemessen …")
+    m = measure(ref16, voc16)
+    gain = min(max(float(np.sqrt(np.mean(ref16 ** 2) / (np.mean(voc16 ** 2) + 1e-12))), 0.2), 5.0)
+    target_len = len(ref16) / SR
+    sr = sf.info(d / "stimmen.wav").samplerate   # gleiche Rate wie die getrennten Stimmen (Export schneidet daraus)
+    out = d / "vocal.wav"
+    report(0.6, "Vocal-Datei wird angepasst …")
+    _apply(source, out, m["offset"], m["slope"], gain, target_len, sr=sr)
+    check = measure(ref16, media.load_mono(out))
+    if abs(check["offset"]) > 0.02:   # Nachkorrektur, falls noch ein Rest bleibt
+        report(0.75, "Feinkorrektur …")
+        m["offset"] += check["offset"]
+        _apply(source, out, m["offset"], m["slope"], gain, target_len, sr=sr)
+        check = measure(ref16, media.load_mono(out))
+    report(0.85, "Lautstärke wird angeglichen …")
+    factor = _match_vocal_level(d, out)
+    quality = max(m["quality"], check["quality"])
+    aligned = abs(check["offset"]) < 0.05
+    if aligned and quality > 0.4:
+        rating, note = "sehr gut", "Die Vocal-Datei sitzt genau auf dem Video."
+    elif aligned and quality > 0.2:
+        rating, note = "gut", "Die Vocal-Datei passt zum Video."
+    elif aligned and quality > 0.1:
+        rating, note = "mäßig", "Die Vocal-Datei passt ungefähr, vermutlich eine andere Abmischung."
+    else:
+        rating, note = "passt nicht", "Die Vocal-Datei ließ sich nicht sauber ausrichten (anderer Song oder Schnitt?)."
+    info = {"datei": source.name, "versatz": round(m["offset"], 3), "drift": round(m["drift"], 3),
+            "tempo_slope": m["slope"], "grundpegel": round(gain, 3), "lautstaerke": round(gain * factor, 3),
+            "guete": round(quality, 3), "rest_versatz": round(abs(check["offset"]), 3),
+            "bewertung": rating, "hinweis": note, "laenge": round(target_len, 2)}
+    (d / "vocal.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf8")
+    media.encode_opus(out, d / "vocal.ogg")   # zum Anhören im Editor („Stimmen“)
+    report(1.0, f"{rating}: {note}")
+    return info
 
 
 def _env_list(x, fps, sr=SR):
@@ -330,14 +412,16 @@ def _env_list(x, fps, sr=SR):
     return [round(float(v), 1) for v in db]
 
 
-def waves(project_dir, fps=50):
-    """Hüllkurven zum Ausrichten von Hand: KI-Hintergrund (Video-Zeitachse) und das eigene Instrumental (eigene Zeitachse)."""
+def waves(project_dir, fps=50, kind="inst"):
+    """Hüllkurven zum Ausrichten von Hand: KI-Spur (Video-Zeitachse) und die eigene Datei (eigene Zeitachse).
+    kind „inst“: KI-Hintergrund und Instrumental, „vocal“: KI-Stimmen und Vocal-Datei."""
     d = project_dir
-    src = source_file(d)
+    name, ref_file = KINDS[kind]
+    src = source_file(d, kind)
     if src is None:
-        raise RuntimeError("Es ist keine eigene Instrumental-Datei gesetzt.")
-    info = json.loads((d / "instrumental.json").read_text(encoding="utf8")) if (d / "instrumental.json").exists() else {}
-    ref = media.load_mono(d / "hintergrund.wav")
+        raise _no_file(kind)
+    info = json.loads((d / f"{name}.json").read_text(encoding="utf8")) if (d / f"{name}.json").exists() else {}
+    ref = media.load_mono(d / ref_file)
     own = media.load_mono(src)
     return {"fps": fps, "ref": _env_list(ref, fps), "own": _env_list(own, fps), "source": src.name,
             "offset": info.get("versatz", 0.0), "slope": info.get("tempo_slope", 0.0),
@@ -347,13 +431,13 @@ def waves(project_dir, fps=50):
 PREVIEW_SR = 24000   # Hörfassungen fürs Ausrichten: mono, genau springbar (MP3 springt im Browser nur ungefähr)
 
 
-def preview(project_dir, which):
-    """WAV-Hörfassung für das Ausrichten von Hand: 'ref' = KI-Hintergrund, 'own' = eigenes Instrumental (roh)."""
+def preview(project_dir, which, kind="inst"):
+    """WAV-Hörfassung für das Ausrichten von Hand: 'ref' = KI-Spur, 'own' = eigene Datei (roh)."""
     d = project_dir
-    src = d / "hintergrund.wav" if which == "ref" else source_file(d)
+    src = d / KINDS[kind][1] if which == "ref" else source_file(d, kind)
     if src is None or not src.exists():
-        raise RuntimeError("Es ist keine eigene Instrumental-Datei gesetzt.")
-    dst = d / f"ausrichten_{which}.wav"
+        raise _no_file(kind)
+    dst = d / (f"ausrichten_{which}.wav" if kind == "inst" else f"ausrichten_{kind}_{which}.wav")
     if not dst.exists() or dst.stat().st_mtime < src.stat().st_mtime:
         media.run([media.FFMPEG, "-y", "-v", "error", "-i", str(src), "-vn", "-ac", "1", "-ar", str(PREVIEW_SR),
                    "-c:a", "pcm_s16le", str(dst)])
@@ -373,35 +457,44 @@ def _base_gain(project_dir, source):
         return 1.0
 
 
-def manual(project_dir, offset):
+def manual(project_dir, offset, kind="inst"):
     """Versatz von Hand setzen (Tempo und Lautstärke bleiben wie bei der automatischen Messung)."""
     d = project_dir
-    src = source_file(d)
+    name = KINDS[kind][0]
+    src = source_file(d, kind)
     if src is None:
-        raise RuntimeError("Es ist keine eigene Instrumental-Datei gesetzt.")
-    info = json.loads((d / "instrumental.json").read_text(encoding="utf8"))
+        raise _no_file(kind)
+    info = json.loads((d / f"{name}.json").read_text(encoding="utf8"))
     slope = float(info.get("tempo_slope", 0.0))
     if info.get("bewertung") == "passt nicht":
         slope = 0.0   # die Messung war unbrauchbar, dann auch ihr Tempo nicht übernehmen
-    target_len = sf.info(d / "audio.wav").duration
-    out = d / "instrumental.wav"
+    out = d / f"{name}.wav"
     # immer vom Grundpegel aus rechnen: nähme man den schon angeglichenen Wert, würde jedes Ausrichten
     # von Hand erneut angeglichen und die Spur Schritt für Schritt leiser
     base = float(info.get("grundpegel") or 0.0) or _base_gain(d, src)
-    _apply(src, out, float(offset), slope, base, target_len)
-    gain = base * _match_level(d, out)   # so laut wie die Musik im Video
-    media.encode_opus(out, d / "instrumental.ogg")
-    (d / "stimmen_diff.wav").unlink(missing_ok=True)   # passte zur alten Ausrichtung
+    if kind == "vocal":
+        ref = sf.info(d / "stimmen.wav")
+        _apply(src, out, float(offset), slope, base, ref.duration, sr=ref.samplerate)
+        gain = base * _match_vocal_level(d, out)   # so laut wie die KI-getrennten Stimmen
+    else:
+        _apply(src, out, float(offset), slope, base, sf.info(d / "audio.wav").duration)
+        gain = base * _match_level(d, out)   # so laut wie die Musik im Video
+        (d / "stimmen_diff.wav").unlink(missing_ok=True)   # passte zur alten Ausrichtung
+        info["stimmen_moeglich"] = False
+    media.encode_opus(out, d / f"{name}.ogg")
     info.update({"versatz": round(float(offset), 3), "tempo_slope": slope, "lautstaerke": round(gain, 3),
-                 "grundpegel": round(base, 3), "bewertung": "von Hand",
-                 "hinweis": "Von Hand ausgerichtet.", "stimmen_moeglich": False})
-    (d / "instrumental.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf8")
+                 "grundpegel": round(base, 3), "bewertung": "von Hand", "hinweis": "Von Hand ausgerichtet."})
+    (d / f"{name}.json").write_text(json.dumps(info, ensure_ascii=False, indent=1), encoding="utf8")
     return info
 
 
-def remove(project_dir):
-    for name in ("instrumental.wav", "instrumental.ogg", "instrumental.json", "stimmen_diff.wav", "ausrichten_ref.wav",
-                 "ausrichten_own.wav"):
+def remove(project_dir, kind="inst"):
+    if kind == "vocal":
+        names = ("vocal.wav", "vocal.ogg", "vocal.json", "ausrichten_vocal_ref.wav", "ausrichten_vocal_own.wav")
+    else:
+        names = ("instrumental.wav", "instrumental.ogg", "instrumental.json", "stimmen_diff.wav", "ausrichten_ref.wav",
+                 "ausrichten_own.wav")
+    for name in names:
         (project_dir / name).unlink(missing_ok=True)
-    for f in project_dir.glob("instrumental_quelle.*"):
+    for f in project_dir.glob(f"{KINDS[kind][0]}_quelle.*"):
         f.unlink(missing_ok=True)

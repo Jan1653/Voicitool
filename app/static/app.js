@@ -2695,9 +2695,22 @@ function setBackingVolume(pct) {
 }
 $('#backVol').addEventListener('input', e => setBackingVolume(e.target.value));
 
+// „Stimmen“ im Editor: die eigene Vocal-Datei, wenn sie Quelle der Clips ist, sonst die KI-Trennung
+function refreshVoiceAudio() {
+  const a = $('#audioVoc');
+  const own = !!(S.p?.vocal && S.p.export?.clip_source === 'vocal');
+  const want = own ? mediaUrl('vocal.ogg') + `?v=${encodeURIComponent(S.p.vocal?.versatz ?? '')}` : mediaUrl('stimmen.ogg');
+  if (a.dataset.url === want) return;
+  a.dataset.url = want;
+  const playing = activeAudios().includes(a) && !video.paused;
+  a.src = want;
+  if (playing) { a.currentTime = video.currentTime; a.play().catch(() => {}); }
+}
+
 function loadMedia(t = 0) {
   video.src = mediaUrl(S.p.preview || S.p.source);
-  $('#audioVoc').src = mediaUrl('stimmen.ogg');
+  $('#audioVoc').dataset.url = '';
+  refreshVoiceAudio();
   $('#audioBack').dataset.file = '';
   $('#audioInst').dataset.url = '';
   refreshBackingAudio();
@@ -3907,6 +3920,7 @@ function fillExportForm() {
   $$('input[name=clipSource]').forEach(r => (r.checked = r.value === x.clip_source));
   $$('input[name=backingSource]').forEach(r => (r.checked = r.value === (x.backing_source || 'auto')));
   renderInstrumental();
+  renderVocal();
   $('#exNormalize').value = x.normalize; $('#exImageMode').value = x.image_mode;
   $('#exLineFormat').value = x.line_format === 'txt' ? 'txt' : 'ini';
   $('#exKeepVoices').checked = !!x.keep_unused_voices;
@@ -3967,13 +3981,13 @@ function readExportForm() {
   scheduleSave();
 }
 $('#tab-export').addEventListener('input', e => {
-  if (e.target.id === 'exTitle' || e.target.id === 'instFile') return; // gesondert behandelt
+  if (['exTitle', 'instFile', 'vocFile', 'instUrl', 'vocUrl'].includes(e.target.id)) return; // gesondert behandelt
   if (e.target.closest('.form') && !e.target.closest('#exChecks')) readExportForm();
 });
 $('#exTitle').addEventListener('change', e => renameProject(e.target.value));
 $('#exTitle').addEventListener('keydown', e => { if (e.key === 'Enter') e.target.blur(); });
 $('#tab-export').addEventListener('change', e => {
-  if (e.target.id === 'instFile') return;
+  if (['instFile', 'vocFile'].includes(e.target.id)) return;
   if (e.target.closest('.form')) { readExportForm(); renderExportChecks(); }
 });
 
@@ -4191,12 +4205,102 @@ $('#btnInstUrl').onclick = async () => {
 $$('input[name=backingSource]').forEach(r => r.addEventListener('change', () => setTimeout(refreshBackingAudio, 0)));
 $('#btnInstManual').onclick = () => openInstAligner();
 
+/* Eigene Vocal-Datei (offizielle Vocal- oder A-cappella-Version): wie das Instrumental, aber als Quelle der Clips.
+   Ausgerichtet wird gegen die KI-getrennten Stimmen. */
+function renderVocal() {
+  const v = S.p.vocal;
+  $('#clipVocalRadio').disabled = !v;
+  $('#btnVocRemove').hidden = !v;
+  $('#btnVocManual').hidden = !v;
+  $('#btnVocManual').classList.toggle('primary', !!v && ['passt nicht', 'mäßig'].includes(v.bewertung));
+  refreshVoiceAudio();
+  const rep = $('#vocReport');
+  if (!v) {
+    rep.className = 'small muted';
+    rep.textContent = tf('Hast du die offizielle Vocal- oder A-cappella-Version? Dann wird sie automatisch auf das Video ausgerichtet und als Quelle für die Clips genutzt.');
+    return;
+  }
+  const cls = ['passt nicht', 'mäßig'].includes(v.bewertung) ? 'warn' : 'ok';
+  const drift = Math.abs(v.drift) > 0.05 ? tf(', Auseinanderlaufen {} ms ausgeglichen', (v.drift * 1000).toFixed(0)) : '';
+  rep.className = 'small';
+  rep.innerHTML = `<b data-nolang>${esc(v.datei)}</b>: <span class="${cls}">${esc(tf(v.bewertung))}</span>: ${esc(tf(v.hinweis))}<br>
+    <span class="muted">${esc(tf('Versatz {} s korrigiert', (v.versatz >= 0 ? '+' : '') + v.versatz.toFixed(2)))}${esc(drift)},
+    ${esc(tf('Lautstärke ×{}, Übereinstimmung {} %', v.lautstaerke.toFixed(2), Math.round(v.guete * 100)))}</span>`;
+}
+
+async function vocalDone(job) {
+  const info = await waitJob(job);
+  const fresh = await api('GET', `/api/projects/${encodeURIComponent(S.pid)}`);
+  S.p.vocal = fresh.vocal; S.p.export = fresh.export;
+  fillExportForm();
+  toast(tf('Vocal-Datei: {}. {}', tf(info.bewertung), tf(info.hinweis)), info.bewertung === 'passt nicht', 7000);
+}
+
+$('#vocFile').onchange = async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const rep = $('#vocReport');
+  rep.className = 'small muted';
+  try {
+    await flushSave();
+    const job = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const fd = new FormData(); fd.append('file', file);
+      xhr.upload.onprogress = ev => { rep.textContent = tf('Lade {} … {} %', file.name, Math.round(ev.loaded / ev.total * 100)); };
+      xhr.onload = () => (xhr.status === 200 ? resolve(JSON.parse(xhr.responseText).job) : reject(new Error(xhr.responseText)));
+      xhr.onerror = () => reject(new Error(tf('Hochladen fehlgeschlagen')));
+      xhr.open('POST', `/api/projects/${encodeURIComponent(S.pid)}/vocal`);
+      xhr.setRequestHeader('X-Voicitool', '1');
+      xhr.send(fd);
+    });
+    rep.textContent = tf('Vocal-Datei wird auf das Video ausgerichtet …');
+    await vocalDone(job);
+  } catch (err) {
+    renderVocal();
+    toast(tf('Vocal-Datei konnte nicht verwendet werden: {}', err.message), true, 7000);
+  }
+};
+
+$('#btnVocUrl').onclick = async () => {
+  const url = $('#vocUrl').value.trim();
+  if (!/^https?:\/\//i.test(url)) return toast(tf('Bitte eine Adresse einfügen, die mit http:// oder https:// beginnt.'), true);
+  const rep = $('#vocReport');
+  rep.className = 'small muted';
+  rep.textContent = tf('Vocal-Datei wird geladen …');
+  $('#btnVocUrl').disabled = true;
+  try {
+    await flushSave();
+    const { job } = await api('POST', `/api/projects/${encodeURIComponent(S.pid)}/vocal_url`, { url });
+    await vocalDone(job);
+    $('#vocUrl').value = '';
+  } catch (err) {
+    renderVocal();
+    toast(tf('Vocal-Datei konnte nicht verwendet werden: {}', err.message), true, 7000);
+  } finally {
+    $('#btnVocUrl').disabled = false;
+  }
+};
+
+$('#btnVocRemove').onclick = async () => {
+  try {
+    await api('DELETE', `/api/projects/${encodeURIComponent(S.pid)}/vocal`);
+    const fresh = await api('GET', `/api/projects/${encodeURIComponent(S.pid)}`);
+    S.p.vocal = null; S.p.export = fresh.export;
+    fillExportForm();
+    toast(tf('Vocal-Datei entfernt. Die Clips kommen wieder aus der KI-Trennung.'));
+  } catch (e) { toast(e.message, true); }
+};
+$('#btnVocManual').onclick = () => openInstAligner('vocal');
+$$('input[name=clipSource]').forEach(r => r.addEventListener('change', () => setTimeout(refreshVoiceAudio, 0)));
+
 /* Instrumental von Hand ausrichten: oben der Hintergrund, den die KI aus dem Video getrennt hat, unten das eigene
    Instrumental auf der Zeitachse des Videos. Schieben mit der Maus oder den Knöpfen, Mausrad zoomt.
    Anhören einzeln oder beide zusammen: solange es nicht passt, hört man bei „Beide“ ein Echo. */
-async function openInstAligner() {
+async function openInstAligner(kind = 'inst') {
+  const voc = kind === 'vocal', base = `/api/projects/${encodeURIComponent(S.pid)}/${voc ? 'vocal' : 'instrumental'}`;
   let W;
-  try { W = await api('GET', `/api/projects/${encodeURIComponent(S.pid)}/instrumental/waves`); }
+  try { W = await api('GET', `${base}/waves`); }
   catch (e) { toast(e.message, true); return; }
   video.pause();
   const fps = W.fps, tempo = 1 / (1 - (W.slope || 0)), total = W.ref.length / fps;
@@ -4208,9 +4312,10 @@ async function openInstAligner() {
   ov.className = 'dlg-overlay';
   ov.innerHTML = `<div class="dlg wide inst-align" role="dialog" aria-modal="true">
     <div class="dlg-head"><div class="dlg-icon" aria-hidden="true">${ic('music')}</div>
-      <div class="dlg-titles"><h2>Instrumental von Hand ausrichten</h2>
-      <p class="dlg-text">Oben der Hintergrund, den die KI aus dem Video getrennt hat, unten dein Instrumental. Schieb dein Instrumental mit der Maus, bis die Ausschläge übereinanderliegen. Mausrad zoomt.</p></div></div>
-    <div class="ia-legend"><span class="ia-ref">KI-Hintergrund</span><span class="ia-own">Dein Instrumental</span></div>
+      <div class="dlg-titles"><h2>${voc ? 'Vocal-Datei von Hand ausrichten' : 'Instrumental von Hand ausrichten'}</h2>
+      <p class="dlg-text">${voc ? 'Oben die Stimmen, die die KI aus dem Video getrennt hat, unten deine Vocal-Datei. Schieb deine Vocal-Datei mit der Maus, bis die Ausschläge übereinanderliegen. Mausrad zoomt.'
+        : 'Oben der Hintergrund, den die KI aus dem Video getrennt hat, unten dein Instrumental. Schieb dein Instrumental mit der Maus, bis die Ausschläge übereinanderliegen. Mausrad zoomt.'}</p></div></div>
+    <div class="ia-legend"><span class="ia-ref">${voc ? 'KI-Stimmen' : 'KI-Hintergrund'}</span><span class="ia-own">${voc ? 'Deine Vocal-Datei' : 'Dein Instrumental'}</span></div>
     <canvas class="ia-canvas"></canvas>
     <input type="range" class="ia-pos" min="0" step="0.1" aria-label="Stelle im Video">
     <div class="ia-row">
@@ -4218,7 +4323,7 @@ async function openInstAligner() {
       <div class="row-btns">${[-1, -0.1, -0.01, 0.01, 0.1, 1].map(d => `<button class="btn small" data-d="${d}">${d > 0 ? '+' : '−'}${String(Math.abs(d)).replace('.', ',')} s</button>`).join('')}</div>
     </div>
     <div class="ia-row">
-      <div class="seg ia-mode"><button data-m="ref">KI-Hintergrund</button><button data-m="own">Dein Instrumental</button><button data-m="both" class="on">Beide</button></div>
+      <div class="seg ia-mode"><button data-m="ref">${voc ? 'KI-Stimmen' : 'KI-Hintergrund'}</button><button data-m="own">${voc ? 'Deine Vocal-Datei' : 'Dein Instrumental'}</button><button data-m="both" class="on">Beide</button></div>
       <button class="btn small ia-play">${ic('play')}<span>Anhören</span></button>
     </div>
     <div class="dlg-actions"><button class="btn ia-cancel">Abbrechen</button><button class="btn primary ia-ok">Übernehmen</button></div>
@@ -4232,7 +4337,7 @@ async function openInstAligner() {
   const gRef = actx.createGain(), gOwn = actx.createGain();
   gRef.connect(actx.destination); gOwn.connect(actx.destination);
   gOwn.gain.value = W.gain || 1;   // so laut, wie es danach als Hintergrund klingt
-  const loadBuf = which => fetch(`/api/projects/${encodeURIComponent(S.pid)}/instrumental/preview/${which}`)
+  const loadBuf = which => fetch(`${base}/preview/${which}`)
     .then(r => { if (!r.ok) throw new Error(tf('Ton konnte nicht geladen werden.')); return r.arrayBuffer(); })
     .then(b => actx.decodeAudioData(b));
   const bufs = Promise.all([loadBuf('ref'), loadBuf('own')]);
@@ -4359,13 +4464,18 @@ async function openInstAligner() {
     btn.disabled = true;
     try {
       await flushSave();
-      const info = await api('POST', `/api/projects/${encodeURIComponent(S.pid)}/instrumental/manual`, { offset });
-      S.p.instrumental = info;
-      S.p.export.backing_source = 'eigene';
-      if (S.p.export.clip_source === 'differenz') S.p.export.clip_source = 'stimmen';
+      const info = await api('POST', `${base}/manual`, { offset });
+      if (voc) {
+        S.p.vocal = info;
+        S.p.export.clip_source = 'vocal';
+      } else {
+        S.p.instrumental = info;
+        S.p.export.backing_source = 'eigene';
+        if (S.p.export.clip_source === 'differenz') S.p.export.clip_source = 'stimmen';
+      }
       close();
       fillExportForm();
-      toast(tf('Instrumental ausgerichtet (Versatz {} s).', offset.toFixed(2).replace('.', ',')));
+      toast(tf(voc ? 'Vocal-Datei ausgerichtet (Versatz {} s).' : 'Instrumental ausgerichtet (Versatz {} s).', offset.toFixed(2).replace('.', ',')));
     } catch (e) { btn.disabled = false; toast(e.message, true); }
   };
   new ResizeObserver(draw).observe(cvA);

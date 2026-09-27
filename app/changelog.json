@@ -1,5 +1,13 @@
 [
   {
+    "build": 60,
+    "date": "2026-09-27",
+    "changes": [
+      "Use your own vocal file for the clips: under Export, Clips, pick the official vocal or a cappella version, or paste a link. Voicitool aligns it to the video (offset, tempo and volume) just like your own instrumental, and the clips come from it instead of the AI separation.",
+      "Align the vocal file by hand, listen to it next to the AI voices, or remove it again. With a vocal file chosen, \"Voices only\" in the player plays that file, and voices without a line in the backing track also come from it."
+    ]
+  },
+  {
     "build": 59,
     "date": "2026-09-27",
     "changes": [

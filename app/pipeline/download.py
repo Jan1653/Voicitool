@@ -71,14 +71,15 @@ def _cleanup_partials():
             f.unlink(missing_ok=True)
 
 
-def download_audio(url, target_dir, on_progress):
-    """Nur den Ton von einer Web-Adresse laden (z. B. ein Instrumental von YouTube)."""
+def download_audio(url, target_dir, on_progress, name="instrumental"):
+    """Nur den Ton von einer Web-Adresse laden (z. B. ein Instrumental oder eine Vocal-Datei von YouTube).
+    Gespeichert als <name>_quelle.<Endung>."""
     import yt_dlp
 
     if not valid_url(url):
         raise ValueError("Das ist keine gültige Web-Adresse (muss mit http:// oder https:// beginnen).")
     target_dir = Path(target_dir)
-    for old in target_dir.glob("instrumental_quelle.*"):
+    for old in target_dir.glob(f"{name}_quelle.*"):
         old.unlink()
 
     def hook(d):
@@ -89,14 +90,14 @@ def download_audio(url, target_dir, on_progress):
                         f"{done / 1e6:.1f} von {total / 1e6:.1f} MB" if total else f"{done / 1e6:.1f} MB")
 
     opts = ytdlp_base_options()
-    opts.update({"outtmpl": str(target_dir / "instrumental_quelle.%(ext)s"), "format": "bestaudio/best",
+    opts.update({"outtmpl": str(target_dir / f"{name}_quelle.%(ext)s"), "format": "bestaudio/best",
                  "overwrites": True, "progress_hooks": [hook]})
     with _update_lock:
         pass
     on_progress(0.0, "Ton wird gesucht …")
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
-    files = sorted(target_dir.glob("instrumental_quelle.*"), key=lambda f: f.stat().st_mtime)
+    files = sorted(target_dir.glob(f"{name}_quelle.*"), key=lambda f: f.stat().st_mtime)
     files = [f for f in files if f.suffix not in (".part", ".ytdl")]
     if not files:
         raise RuntimeError("Der Download hat keine Datei erzeugt.")
