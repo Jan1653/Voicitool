@@ -1,5 +1,12 @@
 [
   {
+    "build": 62,
+    "date": "2026-09-27",
+    "changes": [
+      "Fixed: when the PC was very busy at start, Voicitool could decide the graphics card was unusable and process everything much slower on the processor until the next update. It now waits longer for the check and tries again instead of remembering a failed check."
+    ]
+  },
+  {
     "build": 61,
     "date": "2026-09-27",
     "changes": [

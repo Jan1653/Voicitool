@@ -177,6 +177,7 @@ def setup_variant():
 _gpu_check = {"state": "offen", "result": None}
 _gpu_lock = threading.Lock()
 GPU_CHECK_FILE = config.DATA_DIR / "grafikkarte.json"
+GPU_PROBE_TIMEOUT = 180   # s: so lange darf die Prüfung dauern (PyTorch laden unter Volllast)
 _PROBE = (
     "import json, torch\n"
     "d = {'cuda': torch.cuda.is_available()}\n"
@@ -234,23 +235,37 @@ def _run_gpu_check():
             result = cached["result"]
     except Exception:
         pass
+    failed = False
     if result is None:
         if not gpu or setup_variant() == "cpu":
             result = {"cuda": False, "supported": False}
         else:
-            out = _run([sys.executable, "-c", _PROBE], timeout=60)
+            # Unter Volllast (andere Verarbeitung läuft) braucht allein das Laden von PyTorch über eine Minute
+            out = _run([sys.executable, "-c", _PROBE], timeout=GPU_PROBE_TIMEOUT)
             try:
                 d = json.loads(out.strip().splitlines()[-1])
             except Exception:
                 d = {"cuda": False}
+                failed = True   # keine Antwort (Zeit abgelaufen, Absturz): sagt nichts über die Grafikkarte
             d["supported"] = bool(d.get("cuda")) and _arch_ok(d.get("cap", [0, 0]), d.get("arch", []))
             result = d
-        try:
-            GPU_CHECK_FILE.write_text(json.dumps({"key": key, "result": result}), encoding="utf8")
-        except Exception:
-            pass
+        if not failed:   # sonst bliebe „Grafikkarte nicht nutzbar“ bis zum nächsten Treiber- oder Voicitool-Update stehen
+            try:
+                GPU_CHECK_FILE.write_text(json.dumps({"key": key, "result": result}), encoding="utf8")
+            except Exception:
+                pass
     with _gpu_lock:
         _gpu_check.update(state="fertig", result=result)
+        if failed and _gpu_check.get("retries", 0) < 3:
+            # später noch einmal prüfen: bis dahin rechnet Voicitool auf dem Prozessor
+            _gpu_check["retries"] = _gpu_check.get("retries", 0) + 1
+            threading.Timer(90, _retry_gpu_check).start()
+
+
+def _retry_gpu_check():
+    with _gpu_lock:
+        _gpu_check["state"] = "offen"
+    gpu_check()
 
 
 def device(project_settings=None):
