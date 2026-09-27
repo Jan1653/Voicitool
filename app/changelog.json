@@ -1,5 +1,14 @@
 [
   {
+    "build": 57,
+    "date": "2026-09-27",
+    "changes": [
+      "Drag several selected clips into another speaker lane at once. They all move by the same number of lanes.",
+      "Clicking a clip that is already part of a selection keeps the whole selection now.",
+      "Dragging a project into another category scrolls the list when you reach the top or bottom edge."
+    ]
+  },
+  {
     "build": 56,
     "date": "2026-09-26",
     "changes": [

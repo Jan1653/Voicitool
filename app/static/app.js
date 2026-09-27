@@ -1126,8 +1126,38 @@ projectEl.addEventListener('dragstart', e => {
   e.dataTransfer.effectAllowed = 'move';
   requestAnimationFrame(() => it.classList.add('dragging'));
 });
+/* Am oberen oder unteren Rand automatisch mitscrollen. Während eines Drags scrollt das Mausrad nicht,
+   ohne das käme man an Kategorien, die gerade nicht im Bild sind, gar nicht heran. */
+const autoScroll = { y: 0, raf: 0, box: null };
+function scrollBoxOf(el) {
+  for (let n = el; n && n !== document.body; n = n.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(n).overflowY) && n.scrollHeight > n.clientHeight + 2) return n;
+  }
+  return document.scrollingElement;
+}
+function autoScrollStep() {
+  autoScroll.raf = 0;
+  const box = autoScroll.box;
+  if (!drag.kind || !box) return;
+  const r = box === document.scrollingElement ? { top: 0, bottom: innerHeight } : box.getBoundingClientRect();
+  const edge = 56, y = autoScroll.y;
+  const over = y < r.top + edge ? y - (r.top + edge) : y > r.bottom - edge ? y - (r.bottom - edge) : 0;
+  if (over) box.scrollTop += clamp(over, -edge, edge) * 0.35;
+  autoScroll.raf = requestAnimationFrame(autoScrollStep);
+}
+function autoScrollAt(e) {
+  autoScroll.y = e.clientY;
+  autoScroll.box = autoScroll.box || scrollBoxOf(e.target.nodeType === 1 ? e.target : projectEl);
+  if (!autoScroll.raf) autoScroll.raf = requestAnimationFrame(autoScrollStep);
+}
+function autoScrollOff() {
+  if (autoScroll.raf) cancelAnimationFrame(autoScroll.raf);
+  Object.assign(autoScroll, { raf: 0, box: null });
+}
+
 projectEl.addEventListener('dragend', () => {
   $$('#projectList .dragging').forEach(x => x.classList.remove('dragging'));
+  autoScrollOff();
   clearMarks();
   Object.assign(drag, { kind: null, id: null, at: null });
 });
@@ -1156,6 +1186,7 @@ function dropSpot(e) {
 }
 projectEl.addEventListener('dragover', e => {
   if (!drag.kind) return;
+  autoScrollAt(e);
   const spot = dropSpot(e);
   if (!spot) { clearMarks(); drag.at = null; return; }
   e.preventDefault();
@@ -1169,6 +1200,7 @@ projectEl.addEventListener('drop', e => {
   if (!drag.kind) return;
   e.preventDefault();
   e.stopPropagation();
+  autoScrollOff();
   const { kind, id } = drag;
   let at = dropSpot(e);   // genau dort, wo losgelassen wurde (das letzte dragover kann älter sein)
   if (at === 'self') return clearMarks();
@@ -2997,7 +3029,8 @@ list.addEventListener('mousedown', e => {
     else toggleSel(el.dataset.id);
     return;
   }
-  if (S.sel !== el.dataset.id) selectLine(el.dataset.id, { scroll: false });
+  if (isSel(el.dataset.id)) focusInSel(el.dataset.id);   // gehört schon zur Auswahl: die bleibt
+  else if (S.sel !== el.dataset.id) selectLine(el.dataset.id, { scroll: false });
 });
 list.addEventListener('click', e => {
   const el = e.target.closest('.line'); if (!el) return;
@@ -4946,7 +4979,7 @@ cv.addEventListener('mousemove', e => {
     : h.shared ? 'Gemeinsame Kante: beide Zeilen ziehen (eine wird länger, die andere kürzer)'
     : h.kind === 'wave-edge' ? 'Ziehen: Wellenform größer/kleiner · Doppelklick: Standardgröße'
     : h.kind === 'empty' ? 'Ziehen = neue Zeile · Doppelklick = neue Zeile an der Stimme · Rechtsklick = Menü'
-    : h.kind === 'move' ? 'Ziehen = verschieben (auch in andere Sprecher-Spur) · Rechtsklick = Menü'
+    : h.kind === 'move' ? 'Ziehen = verschieben (auch in andere Sprecher-Spur, mit ganzer Auswahl) · Rechtsklick = Menü'
     : h.kind === 'start' ? 'Anfang dieser Zeile ziehen' : h.kind === 'end' ? 'Ende dieser Zeile ziehen'
     : cutAt(x2t(e.offsetX)) ? 'Rausgeschnittene Stelle · Rechtsklick = Schnitt entfernen' : '';
 });
@@ -5023,9 +5056,15 @@ cv.addEventListener('mousedown', e => {
     const orig = { start: l.start, end: l.end, chars: [...l.chars] }, tDown = x2t(x);
     const snap = JSON.stringify({ lines: S.p.lines, characters: S.p.characters });
     const group = isSel(l.id) ? selectedLines().filter(o => o !== l) : [];
-    const groupOrig = group.map(o => ({ o, start: o.start, end: o.end }));
+    const groupOrig = group.map(o => ({ o, start: o.start, end: o.end, chars: [...o.chars] }));
     const groupIds = new Set([l.id, ...group.map(o => o.id)]);
+    // Ganze Auswahl in andere Sprecher-Spuren ziehen: alle wandern um dieselbe Zahl Spuren weiter,
+    // dadurch fällt niemand oben oder unten heraus und zwei Zeilen landen nie in derselben Spur.
+    const groupLanes = [l, ...group].flatMap(o => o.chars.map(laneOf));
+    const dlMin = -Math.min(...groupLanes), dlMax = (L.lanes - 1) - Math.max(...groupLanes);
+    const shiftChars = (chars, dl) => (dl ? [...new Set(chars.map(c => charOfLane(laneOf(c) + dl) || c))] : [...chars]);
     if (!groupOrig.length) selectLine(l.id, { reveal: false });
+    else focusInSel(l.id);   // Auswahl bleibt, angeklickte Zeile wird die Hauptzeile
     // Grenzt direkt eine Zeile desselben Sprechers an? Dann wandert die gemeinsame Kante:
     // eine Zeile wird größer, die andere genauso viel kleiner.
     let buddy = null, buddyOrig = null;
@@ -5043,7 +5082,7 @@ cv.addEventListener('mousedown', e => {
     const gap = freeGap(l.chars, (l.start + l.end) / 2, skip) || { lo: 0, hi: S.p.duration };
     const bgap = buddy ? freeGap(buddy.chars, (buddy.start + buddy.end) / 2, skip) || { lo: 0, hi: S.p.duration } : null;
     S.drag = {
-      kind: h.kind, line: l, moved: false, invalid: false, targetLane: null,
+      kind: h.kind, line: l, moved: false, invalid: false, targetLane: null, dl: 0,
       move: ev => {
         const d = S.drag;
         if (!d.moved && Math.abs(ev.offsetX - x) < 3 && Math.abs(ev.offsetY - y) < 3) return;
@@ -5063,7 +5102,12 @@ cv.addEventListener('mousedown', e => {
           if (buddy) buddy.start = r3(l.end + GAP);
           seek(l.end);
         } else if (groupOrig.length) {
-          // Mehrere Zeilen zusammen: nur in der Zeit, der Sprecher bleibt bei allen
+          // Mehrere Zeilen zusammen: in der Zeit und, wer nach oben oder unten zieht, auch in andere Spuren
+          const dl = h.kind === 'move' ? clamp(laneAt(ev.offsetY) - laneOf(dragChar), dlMin, dlMax) : 0;
+          d.dl = dl;
+          d.targetLane = dl ? laneOf(dragChar) + dl : null;
+          l.chars = shiftChars(orig.chars, dl);
+          for (const it of groupOrig) it.o.chars = shiftChars(it.chars, dl);
           const len = orig.end - orig.start;
           let s = clamp(snapTime(orig.start + dt, l.id), 0, S.p.duration - len);
           let shift = s - orig.start;
@@ -5111,15 +5155,18 @@ cv.addEventListener('mousedown', e => {
         if (d.invalid) {
           Object.assign(l, orig);
           if (buddy) Object.assign(buddy, buddyOrig);
-          for (const it of groupOrig) Object.assign(it.o, { start: it.start, end: it.end });
+          for (const it of groupOrig) Object.assign(it.o, { start: it.start, end: it.end, chars: [...it.chars] });
           toast(BLOCK_MSG, true);
           drawTimeline();
           return;
         }
         S.undo.push(snap); if (S.undo.length > 200) S.undo.shift(); S.redo = [];
         if (groupOrig.length && h.kind === 'move') {
-          afterChange(null);
-          toast(tf('{} Zeilen verschoben.', groupOrig.length + 1));
+          afterChange(null, !!d.dl);
+          const names = new Set([l, ...group].map(o => charById(o.chars[0])?.name).filter(Boolean));
+          toast(d.dl && names.size === 1
+            ? tf('{} Zeilen zu {} verschoben.', groupOrig.length + 1, [...names][0])
+            : tf('{} Zeilen verschoben.', groupOrig.length + 1));
           return;
         }
         const trimmed = h.kind === 'move' && Math.abs((l.end - l.start) - (orig.end - orig.start)) > 0.001;
