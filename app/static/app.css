@@ -1056,3 +1056,25 @@ input[type=radio]:disabled { opacity: .5; cursor: default; }
 .rt-label { display: flex; gap: 8px; align-items: baseline; font-weight: 600; font-size: 13px; }
 .rt-text { width: 100%; min-height: 180px; resize: vertical; box-sizing: border-box; background: var(--panel2); color: var(--text);
   border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: 13px/1.45 inherit; }
+
+/* Online-Dienste: Verbrauch heute (Knopf in der Leiste, Liste als Popover) */
+.usage-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 15px;
+  border: 1px solid var(--line); background: var(--panel2); color: var(--muted); cursor: pointer; font-size: 12px;
+  anchor-name: --vt-usage; margin-right: 6px; }
+.usage-btn:hover { color: var(--text); }
+.usage-btn .ic { width: 15px; height: 15px; }
+.usage-btn.low { color: #f0b429; border-color: #f0b42966; }
+.usage-btn.empty { color: #ff6b6b; border-color: #ff6b6b66; }
+.usage-pop { position: fixed; inset: auto; margin: 0; position-anchor: --vt-usage; top: anchor(bottom); right: anchor(right);
+  margin-top: 6px; width: 21em; padding: .8em .9em; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--menu); color: var(--text); box-shadow: 0 18px 50px var(--shadow); font-size: calc(13px * var(--z, 1)); }
+.usage-pop h4 { margin: 0 0 .6em; font-size: 1em; }
+.us-item { padding: .45em 0; border-top: 1px solid var(--line); }
+.us-item:first-of-type { border-top: 0; }
+.us-head { display: flex; justify-content: space-between; gap: 1em; font-weight: 600; }
+.us-head .muted { font-weight: 400; }
+.us-bar { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; margin: .35em 0 .25em; }
+.us-bar > div { height: 100%; background: var(--accent); }
+.us-bar.low > div { background: #f0b429; }
+.us-bar.empty > div { background: #ff6b6b; }
+.usage-pop .us-foot { margin-top: .6em; }

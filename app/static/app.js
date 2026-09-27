@@ -2072,6 +2072,45 @@ async function loadOnline() {
 }
 const onlineReady = () => !!(onlineState?.ready && (onlineState.ready.separate || onlineState.ready.transcribe));
 const ONLINE_NAMES = { mvsep: 'MVSEP', groq: 'Groq', cloudflare: 'Cloudflare', gemini: 'Gemini' };
+
+/* Verbrauch heute je Online-Dienst, als Knopf in der Leiste. Die Dienste melden ihn kaum selbst, Voicitool zählt
+   mit, wie viel Ton es heute geschickt hat, und vergleicht mit der bekannten Gratis-Grenze (Tag nach UTC). */
+let usageState = null;
+const usageMin = s => Math.round(s / 60);
+async function refreshUsage() {
+  try { usageState = await api('GET', '/api/online/usage'); } catch { usageState = null; }
+  renderUsage();
+}
+function renderUsage() {
+  const btn = $('#btnUsage'), list = usageState?.services || [];
+  btn.hidden = !list.length;
+  if (!list.length) return;
+  const limited = list.filter(s => s.limit_s);
+  const lowest = limited.length ? Math.min(...limited.map(s => s.left_s / s.limit_s)) : null;
+  const cls = lowest === null ? '' : lowest <= 0.02 ? 'empty' : lowest < 0.2 ? 'low' : '';
+  btn.className = `usage-btn ${cls}`;
+  $('#usageShort').textContent = lowest === null ? tf('Online') : tf('noch {} %', Math.round(lowest * 100));
+  const rows = list.map(s => {
+    let body;
+    if (s.limit_s) {
+      const used = Math.min(1, s.used_s / s.limit_s), c = s.left_s / s.limit_s <= 0.02 ? 'empty' : s.left_s / s.limit_s < 0.2 ? 'low' : '';
+      body = `<div class="us-bar ${c}"><div style="width:${(used * 100).toFixed(1)}%"></div></div>
+        <div class="small muted">${esc(tf('{} von {} min heute genutzt, noch {} min', usageMin(s.used_s), usageMin(s.limit_s), usageMin(s.left_s)))}</div>`;
+    } else {
+      body = `<div class="small muted">${esc(tf('{} min heute genutzt, kein festes Tageslimit bekannt', usageMin(s.used_s)))}</div>`;
+    }
+    if (s.queue_ahead != null) {
+      body += `<div class="small muted">${esc(tf('Warteschlange: {} vor dir, etwa {} min', s.queue_ahead, Math.max(1, usageMin(s.queue_wait_s || 0))))}</div>`;
+    }
+    const state = s.ok === false ? `<span class="warn">${esc(tf('Schlüssel prüfen'))}</span>` : `<span class="muted">${esc(tf('{} Anfragen', s.requests))}</span>`;
+    return `<div class="us-item"><div class="us-head"><span data-nolang>${esc(s.name)}</span>${state}</div>${body}</div>`;
+  }).join('');
+  $('#usagePop').innerHTML = `<h4>${esc(tf('Online-Dienste heute'))}</h4>${rows}
+    <div class="small muted us-foot">${esc(tf('Von Voicitool mitgezählt, der Tag beginnt um Mitternacht UTC.'))}</div>`;
+}
+$('#btnUsage').addEventListener('click', refreshUsage);
+refreshUsage();
+setInterval(() => { if (!document.hidden) refreshUsage(); }, 60000);
 /* Dienste zum Text erkennen, beste zuerst (gemessen an 3 Referenz-Packs, je 1-Minuten-Stücke): Groq und Cloudflare gleich
    genau (13,3 / 13,4 % Wortfehler), Groq 2 bis 4 Mal schneller mit größerem Kontingent; Gemini deutlich ungenauer */
 const ONLINE_MODELS = {

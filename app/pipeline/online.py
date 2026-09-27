@@ -39,6 +39,7 @@ MVSEP_MODEL = "81"          # BS Roformer ver 2025.07 (Standard bei MVSEP, besse
 MVSEP_MAX = 9.5 * 60        # Gratiskonto: höchstens 10 min je Datei, längere Tonspuren in Teilen
 MVSEP_OVERLAP = 6.0         # Überlappung der Teile, dort wird überblendet (s)
 MVSEP_TIMEOUT = 45 * 60     # so lange höchstens auf ein Ergebnis warten (Warteschlange)
+MVSEP_BUSY_WAIT = 30        # MVSEP lehnt ab, weil schon ein Auftrag läuft: so lange warten bis zum nächsten Versuch (s)
 
 GROQ_API = "https://api.groq.com/openai/v1"
 GROQ_MODEL = "whisper-large-v3"
@@ -126,6 +127,86 @@ def ready(data=None, asr=None):
     else:
         tr = asr_service(data)
     return {"separate": configured("mvsep", data), "transcribe": tr}
+
+
+# ------------------------------------------------------------------ Verbrauch
+# Die Dienste verraten ihren Verbrauch kaum (Cloudflare nur mit Analytics-Recht, Groq und Gemini gar nicht).
+# Voicitool zählt deshalb selbst mit, wie viel Ton es heute an jeden Dienst geschickt hat (Tag nach UTC,
+# so zählen die Dienste ihre Tageslimits), und vergleicht mit den bekannten Gratis-Grenzen.
+USAGE_FILE = config.DATA_DIR / "online_usage.json"
+# Gratis-Grenze je Tag in Sekunden Ton (None = keine feste Grenze bekannt)
+DAY_LIMIT = {"groq": 28800,                      # whisper-large-v3: 28.800 Audiosekunden am Tag
+             "cloudflare": round(10000 / 46.63 * 60),   # 10.000 Neurons am Tag, Whisper Turbo 46,63 je Audiominute
+             "gemini": None, "mvsep": None}
+_queue_cache = {"t": 0.0, "data": None}
+_last_headers = {}   # Antwortköpfe der letzten Anfrage je Dienst (Groq meldet dort Restwerte)
+
+
+def _today():
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def _usage_load():
+    try:
+        u = json.loads(USAGE_FILE.read_text(encoding="utf8"))
+    except Exception:
+        u = {}
+    if u.get("day") != _today():
+        u = {"day": _today(), "services": {}, "limits": u.get("limits") or {}}
+    return u
+
+
+def usage_add(service, seconds, headers=None):
+    """Verbrauch mitzählen (auch aus den Worker-Prozessen, deshalb jedes Mal frisch lesen)."""
+    with _lock:
+        u = _usage_load()
+        s = u["services"].setdefault(service, {"seconds": 0.0, "requests": 0})
+        s["seconds"] = round(s["seconds"] + float(seconds), 1)
+        s["requests"] += 1
+        if headers:   # Groq: echte Restwerte aus den Antwortköpfen
+            lim = {k: v for k, v in headers.items() if k.startswith("x-ratelimit-")}
+            if lim:
+                u["limits"][service] = dict(lim, at=time.time())
+        try:
+            USAGE_FILE.write_text(json.dumps(u, ensure_ascii=False), encoding="utf8")
+        except OSError:
+            pass
+
+
+def _mvsep_queue():
+    """Warteschlange bei MVSEP (höchstens einmal je Minute abfragen)."""
+    if time.time() - _queue_cache["t"] > 60:
+        _queue_cache["t"] = time.time()
+        try:
+            _queue_cache["data"] = _json("mvsep", "GET", f"{MVSEP_API}/app/queue/summary?" + urllib.parse.urlencode(
+                {"api_token": _key("mvsep", "token")}), timeout=20).get("data") or {}
+        except Exception:   # noqa: BLE001
+            _queue_cache["data"] = None
+    return _queue_cache["data"]
+
+
+def usage():
+    """Für die Leiste: je eingerichtetem Dienst heute verbraucht, Grenze, Rest; bei MVSEP die Warteschlange."""
+    data, u = load(), _usage_load()
+    out = []
+    for s in ("mvsep", "groq", "cloudflare", "gemini"):
+        if not configured(s, data):
+            continue
+        used = (u["services"].get(s) or {}).get("seconds", 0.0)
+        item = {"service": s, "name": NAMES[s], "used_s": used, "requests": (u["services"].get(s) or {}).get("requests", 0),
+                "limit_s": DAY_LIMIT[s], "ok": (data.get(s) or {}).get("ok")}
+        if DAY_LIMIT[s]:
+            item["left_s"] = max(0.0, DAY_LIMIT[s] - used)
+        lim = u["limits"].get(s) or {}
+        if s == "groq" and lim.get("x-ratelimit-remaining-requests"):
+            item["left_requests"] = lim.get("x-ratelimit-remaining-requests")
+        if s == "mvsep":
+            q = _mvsep_queue()
+            if q:
+                item["queue_ahead"] = q.get("ahead")
+                item["queue_wait_s"] = q.get("estimated_wait_seconds")
+        out.append(item)
+    return {"day": u["day"], "services": out}
 
 
 def _mask(v):
@@ -308,8 +389,16 @@ def _mvsep_one(path, token, report, part_label):
     body, ctype = _multipart([("api_token", token), ("sep_type", "40"), ("add_opt1", MVSEP_MODEL), ("output_format", "2")],
                              [("audiofile", path.name, path.read_bytes(), "audio/flac" if path.suffix == ".flac" else "audio/mpeg")])
     report(0.02, f"Tonspur wird zu MVSEP hochgeladen{part_label}")
-    status, raw, _ = _http("mvsep", "POST", f"{MVSEP_API}/separation/create", {"Content-Type": ctype}, body,
-                           timeout=max(120, size / 200_000))
+    waited = time.time()
+    while True:
+        status, raw, _ = _http("mvsep", "POST", f"{MVSEP_API}/separation/create", {"Content-Type": ctype}, body,
+                               timeout=max(120, size / 200_000))
+        # Gratiskonto: nur ein Auftrag gleichzeitig, weitere lehnt MVSEP mit 400 ab (auch aus einem anderen Voicitool).
+        # Dann warten, bis der Platz frei ist, statt abzubrechen.
+        if status != 400 or time.time() - waited > MVSEP_TIMEOUT:
+            break
+        report(0.01, f"Wartet auf MVSEP: das Gratiskonto trennt nur eine Tonspur gleichzeitig{part_label}")
+        time.sleep(MVSEP_BUSY_WAIT)
     _check("mvsep", status, raw)
     j = json.loads(raw or b"{}")
     if not j.get("success"):
@@ -396,6 +485,7 @@ def separate(audio_path, out_dir, on_progress):
                 src = tmp / f"teil{i}.mp3"
                 _encode(audio_path, src, a, b - a, ("-c:a", "libmp3lame", "-b:a", "320k"))
             files = _mvsep_one(src, token, report, label)
+            usage_add("mvsep", b - a)   # für die Anzeige in der Leiste
             voc, ins = _pick(files)
             report(0.92, f"Ergebnis wird geladen{label}")
             got = []
@@ -501,9 +591,10 @@ def _groq(data, language):
     if language:
         fields.append(("language", language))
     body, ctype = _multipart(fields, [("file", "stimmen.ogg", data, "audio/ogg")])
-    status, raw, _ = _http("groq", "POST", f"{GROQ_API}/audio/transcriptions",
-                           {"Authorization": f"Bearer {_key('groq', 'key')}", "Content-Type": ctype}, body, timeout=600)
+    status, raw, head = _http("groq", "POST", f"{GROQ_API}/audio/transcriptions",
+                              {"Authorization": f"Bearer {_key('groq', 'key')}", "Content-Type": ctype}, body, timeout=600)
     _check("groq", status, raw)
+    _last_headers["groq"] = head
     j = json.loads(raw)
     segs = [{"start": s.get("start", 0.0), "end": s.get("end", 0.0), "text": s.get("text", ""),
              "avg_logprob": s.get("avg_logprob"), "no_speech_prob": s.get("no_speech_prob")} for s in j.get("segments") or []]
@@ -659,6 +750,7 @@ def transcribe(voc16, language, on_progress, vad_threshold=0.35, service=None):
             on_progress(ci / len(chunks), f"Text wird bei {NAMES[service]} erkannt")
             data = _opus(voc16, a, b, tmp)
             segs, ws, code, prob = call(data, lang)
+            usage_add(service, b - a, _last_headers.pop(service, None))   # für die Anzeige in der Leiste
             if code:
                 langs.append((code, prob, b - a))
             if service != "gemini":

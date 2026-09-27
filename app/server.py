@@ -76,12 +76,36 @@ def _kill_tree(proc):
                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
+ONLINE_LANES = ("online-groq", "online-cloudflare", "online-gemini", "online-mvsep")
+
+
+def _process_lane(pid):
+    """Warteschlange für die Verarbeitung: online gerechnet in die Spur des Dienstes, der den Text erkennt
+    (nur MVSEP: eigene Spur), sonst 'gpu'."""
+    try:
+        s = project.load(pid)["settings"]
+        if not s.get("online"):
+            return "gpu"
+        from app.pipeline import online
+        ready = online.ready(asr=s.get("online_asr"))
+        if ready["transcribe"]:
+            lane = f"online-{ready['transcribe']}"
+        elif ready["separate"]:
+            lane = "online-mvsep"
+        else:
+            return "gpu"
+        return lane if lane in ONLINE_LANES else "gpu"
+    except Exception:   # noqa: BLE001
+        return "gpu"
+
+
 class JobRunner:
-    """Drei Warteschlangen, die nebeneinander laufen: 'gpu' (KI, immer nacheinander), 'cpu' (Export) und 'net'
-    (Downloads und Uploads: ein YouTube-Video lädt, während ein Export läuft)."""
+    """Warteschlangen, die nebeneinander laufen: 'gpu' (KI, immer nacheinander), 'cpu' (Export), 'net'
+    (Downloads und Uploads: ein YouTube-Video lädt, während ein Export läuft) und je Online-Dienst eine eigene
+    ('online-groq' …): Online gerechnete Videos warten nicht auf die lokale KI und laufen je Dienst parallel."""
 
     def __init__(self):
-        self.queues = {"gpu": queue.Queue(), "cpu": queue.Queue(), "net": queue.Queue()}
+        self.queues = {lane: queue.Queue() for lane in ("gpu", "cpu", "net", *ONLINE_LANES)}
         self.running = []
         self.pending = []
         self.finished = []  # letzte Ergebnisse
@@ -882,6 +906,13 @@ def _online_times():
     return {"device": dev, "weak": dev == "cpu", "local_3min": round(local), "online_3min": round(online)}
 
 
+@app.get("/api/online/usage")
+def online_usage():
+    """Für die Leiste: heutiger Verbrauch je Online-Dienst, Rest bis zur Gratis-Grenze, MVSEP-Warteschlange."""
+    from app.pipeline import online
+    return online.usage()
+
+
 @app.get("/api/online")
 def online_status():
     """Online rechnen: was eingerichtet ist (Schlüssel nur gekürzt) und wie schnell dieser PC ist."""
@@ -1089,7 +1120,7 @@ def create_project(body: dict = Body(...)):
         project.set_settings(pid, online=True)
         if body.get("online_asr") in online.ASR + ("local",):
             project.set_settings(pid, online_asr=body["online_asr"])
-    jobs.submit("process", pid, run_worker("process", pid), f"Verarbeiten: {_name(pid)}")
+    jobs.submit("process", pid, run_worker("process", pid), f"Verarbeiten: {_name(pid)}", lane=_process_lane(pid))
     return {"id": pid}
 
 
@@ -1111,7 +1142,7 @@ def reprocess(pid: str, body: dict = Body(default={})):
     if lang in ("auto", "mixed") or (2 <= len(lang) <= 3 and lang.isalpha()):
         project.set_settings(pid, language=lang)   # z. B. nach unsicher erkannter Sprache
     _set_status(pid, "wartet", None)
-    jobs.submit("process", pid, run_worker("process", pid), f"Verarbeiten: {_name(pid)}")
+    jobs.submit("process", pid, run_worker("process", pid), f"Verarbeiten: {_name(pid)}", lane=_process_lane(pid))
     return {"ok": True}
 
 

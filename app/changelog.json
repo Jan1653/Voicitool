@@ -1,5 +1,14 @@
 [
   {
+    "build": 61,
+    "date": "2026-09-27",
+    "changes": [
+      "New button in the top bar shows how much of the free online services you used today and what is left: minutes per service against the free daily limit, and your place in the MVSEP queue.",
+      "Videos processed online no longer wait for a video that is processed on this PC, and videos with different text services (Groq, Cloudflare, Gemini) run at the same time.",
+      "MVSEP only takes one track at a time on a free account. Voicitool now waits for the free slot instead of stopping with an error 400."
+    ]
+  },
+  {
     "build": 60,
     "date": "2026-09-27",
     "changes": [
