@@ -1,5 +1,12 @@
 [
   {
+    "build": 58,
+    "date": "2026-09-27",
+    "changes": [
+      "Clicking a clip in the timeline puts the playhead exactly where you clicked instead of at the start of the clip, so you can split it right there with S."
+    ]
+  },
+  {
     "build": 57,
     "date": "2026-09-27",
     "changes": [

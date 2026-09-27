@@ -5151,7 +5151,9 @@ cv.addEventListener('mousedown', e => {
         }
       },
       up: d => {
-        if (!d.moved) { seek(l.start); return; }
+        // Klick ohne Ziehen: Playhead genau an die angeklickte Stelle, nicht an den Anfang der Zeile.
+        // Sonst steht er nach dem Auswählen immer vorn und man kann die Zeile nicht dort teilen, wo man hingeklickt hat.
+        if (!d.moved) { seek(clamp(x2t(x), 0, S.p.duration)); return; }
         if (d.invalid) {
           Object.assign(l, orig);
           if (buddy) Object.assign(buddy, buddyOrig);
