@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "เชื่อมต่อไม่ได้: {}",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "พบ {} รายการ คลิกเพื่อใส่ข้อความลงในช่องด้านล่าง",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "ไม่พบอะไรเลย ลองใช้คำอื่นหรือวางข้อความเอง",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "รวมแล้ว: เวลาจากไฟล์ LRC ผู้ร้องจากเนื้อเพลง",
     "Datei": "ไฟล์",
     "Untertitel in der Videodatei ({})": "คำบรรยายในไฟล์วิดีโอ ({})",
     "YouTube-Untertitel ({})": "คำบรรยาย YouTube ({})",

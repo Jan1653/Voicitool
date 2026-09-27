@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Tidak dapat dijangkau: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} hasil. Klik untuk memasukkan teks ke kolom di bawah.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Tidak ada yang ditemukan. Coba kata lain atau tempel teksnya sendiri.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Digabung: waktu dari file LRC, penyanyi dari lirik.",
     "Datei": "File",
     "Untertitel in der Videodatei ({})": "Subtitle di file video ({})",
     "YouTube-Untertitel ({})": "Subtitle YouTube ({})",

@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Nedostupno: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "Rezultata: {}. Klik prebacuje tekst u polje ispod.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Ništa nije pronađeno. Probaj druge reči ili sam nalepi tekst.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Spojeno: vremena iz LRC datoteke, pevači iz teksta pesme.",
     "Datei": "Datoteka",
     "Untertitel in der Videodatei ({})": "Titlovi u video datoteci ({})",
     "YouTube-Untertitel ({})": "YouTube titlovi ({})",

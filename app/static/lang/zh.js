@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "无法连接：{}。",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} 个结果。点击即可将文本填入下方输入框。",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "未找到任何结果。请换个关键词，或直接粘贴文本。",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "已合并: 时间来自 LRC 文件,歌手来自歌词。",
     "Datei": "文件",
     "Untertitel in der Videodatei ({})": "视频文件中的字幕（{}）",
     "YouTube-Untertitel ({})": "YouTube 字幕（{}）",

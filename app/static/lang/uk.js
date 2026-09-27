@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Недоступно: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "Знайдено: {}. Клік переносить текст у поле нижче.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Нічого не знайдено. Спробуй інші слова або встав текст сам.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Об'єднано: час із файлу LRC, виконавці з тексту пісні.",
     "Datei": "Файл",
     "Untertitel in der Videodatei ({})": "Субтитри у відеофайлі ({})",
     "YouTube-Untertitel ({})": "Субтитри YouTube ({})",

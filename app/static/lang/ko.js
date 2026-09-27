@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "연결할 수 없어요: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "결과 {}개. 클릭하면 아래 칸에 텍스트가 들어가요.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "찾은 결과가 없어요. 다른 단어로 찾거나 텍스트를 직접 붙여넣으세요.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "합쳤습니다: 시간은 LRC 파일에서, 가수는 가사에서.",
     "Datei": "파일",
     "Untertitel in der Videodatei ({})": "영상 파일 속 자막 ({})",
     "YouTube-Untertitel ({})": "YouTube 자막 ({})",

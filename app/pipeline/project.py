@@ -441,9 +441,13 @@ def process(pid, report):
     report("Zeilen bauen", 0, "Zeilen erstellen")
     env = segment.envelope_db(voc16)
     np.save(d / "stimmen_env.npy", env.astype(np.float32))
+    by_text = _speakers_from_text(words)   # Text sagt zu fast allem, wer singt: Name statt Stimme
     lines = segment.refine_bounds(segment.build_lines(words), env)
     _apply_lines(data, lines)
-    named = _names_from_text(data, words)   # „[Verse 2: Natalia]“ im vorgegebenen Text benennt die Figur
+    if by_text:
+        named = _chars_from_names(data, lines, by_text)
+    else:
+        named = _names_from_text(data, words)   # „[Verse 2: Natalia]“ im vorgegebenen Text benennt die Figur
     if named and (data.get("reftext") or {}).get("report"):
         data["reftext"]["report"]["named"] = named
 
@@ -564,9 +568,76 @@ def find_repeats(pid):
     return count
 
 
+NAMED_SPK = 1000       # Sprecher-Nummern ab hier stehen für einen Namen (oder ein Duett) aus dem Text
+MIN_NAMED_SHARE = 0.5  # so viel des Gesprochenen muss einen Namen im Text haben, sonst entscheidet die Stimme
+FILL_GAP = 8.0         # Wörter ohne Namen zwischen zwei Wörtern mit demselben Namen bekommen ihn mit (Lücke bis s)
+
+
+def _speakers_from_text(words):
+    """Nennt der vorgegebene Text zu fast allem, wer singt („[Verse 1: Bowie]“, „[Chorus: Bowie & Mercury]“),
+    entscheidet der Name statt der Stimmerkennung. Setzt w["spk"] um. -> {Sprecher-Nummer: [Namen]} oder {}"""
+    speech = [w for w in words if not w.get("sound") and not w.get("laugh")]
+    hinted = [k for k, w in enumerate(speech) if w.get("who")]
+    if len(hinted) < 5 or len(hinted) < MIN_NAMED_SHARE * len(speech):
+        return {}
+    who = [w.get("who") for w in speech]
+    for a, b in zip(hinted, hinted[1:]):
+        # von Whisper gehörte Wörter, die nicht im Text stehen: gehören zur Stimme drumherum, wenn beide Seiten gleich
+        if b - a > 1 and who[a] == who[b] and speech[b]["s"] - speech[a]["e"] <= FILL_GAP:
+            for k in range(a + 1, b):
+                who[k] = who[a]
+        elif 1 < b - a <= 3 and speech[b - 1]["e"] - speech[a + 1]["s"] <= 1.5:
+            # ein, zwei eingeworfene Wörter („yeah“) zwischen zwei Sängern: zum zeitlich näheren
+            for k in range(a + 1, b):
+                near_a = speech[k]["s"] - speech[a]["e"] <= speech[b]["s"] - speech[k]["e"]
+                who[k] = who[a] if near_a else who[b]
+    keys = sorted({x for x in who if x})
+    spk_of = {name: NAMED_SPK + i for i, name in enumerate(keys)}
+    for w, name in zip(speech, who):
+        if name:
+            w["spk"] = spk_of[name]
+    from app.pipeline import reftext
+    return {spk: reftext.names_of(name) for name, spk in spk_of.items()}
+
+
+def _chars_from_names(data, lines, named):
+    """Nach _apply_lines: Figuren der Namen-Sprecher benennen, Duett-Zeilen allen beteiligten Figuren geben."""
+    used = sorted({ln["spk"] for ln in lines})
+    cid_of = {spk: f"c{i + 1}" for i, spk in enumerate(used)}
+    chars = {c["id"]: c for c in data["characters"]}
+    by_name = {}
+    for spk, names in named.items():
+        if spk in cid_of and len(names) == 1:
+            chars[cid_of[spk]]["name"] = names[0]
+            by_name[names[0].casefold()] = cid_of[spk]
+    extra = 0
+    for spk, names in named.items():
+        if spk not in cid_of or len(names) < 2:
+            continue
+        ids = []
+        for name in names:
+            if name.casefold() not in by_name:
+                # singt nur im Duett: neue Figur für ihn
+                extra += 1
+                new = _character_list(len(chars) + 1, data["settings"].get("ui_lang"))[-1]
+                new.update(id=f"c{len(used) + extra}", name=name)
+                chars[new["id"]] = new
+                by_name[name.casefold()] = new["id"]
+            ids.append(by_name[name.casefold()])
+        duet = cid_of[spk]
+        for ln in data["lines"]:
+            if ln["chars"] == [duet]:
+                ln["chars"] = ids
+        chars.pop(duet, None)
+    data["characters"] = list(chars.values())
+    mark_repeats(data["lines"])
+    return len(by_name)
+
+
 def _names_from_text(data, words):
     """Figuren nach den Namen benennen, die im vorgegebenen Text stehen. -> Anzahl benannter Figuren"""
-    hints = sorted((w for w in words if w.get("who")), key=lambda w: w["s"])
+    # Duette („Bowie & Mercury“) sagen nichts darüber, welche der beiden Stimmen die Figur ist
+    hints = sorted((w for w in words if w.get("who") and " & " not in w["who"]), key=lambda w: w["s"])
     if not hints:
         return 0
     starts = [w["s"] for w in hints]
@@ -674,14 +745,24 @@ def resegment(pid, target_len, pause_split):
     analyse = json.loads((d / "analyse.json").read_text(encoding="utf8"))
     env = np.load(d / "stimmen_env.npy")
     old_names = {c["id"]: c for c in data["characters"]}
+    by_text = _speakers_from_text(analyse["words"])   # Sänger aus dem vorgegebenen Text wie bei der Verarbeitung
     lines = segment.refine_bounds(
         segment.build_lines(analyse["words"], pause_split=pause_split, target_len=target_len,
                             max_len=max(target_len * 1.7, target_len + 3)), env)
     _apply_lines(data, lines)
-    # Namen/Farben/Bilder bestehender Charaktere mit gleicher ID übernehmen
-    for c in data["characters"]:
-        if c["id"] in old_names:
-            c.update({k: old_names[c["id"]][k] for k in ("name", "color", "image")})
+    if by_text:
+        _chars_from_names(data, lines, by_text)
+        # Farben/Bilder der Figuren mit gleichem Namen übernehmen (die Nummern können sich verschieben)
+        old_by_name = {c["name"].casefold(): c for c in old_names.values()}
+        for c in data["characters"]:
+            old = old_by_name.get(c["name"].casefold())
+            if old:
+                c.update({k: old[k] for k in ("color", "image")})
+    else:
+        # Namen/Farben/Bilder bestehender Charaktere mit gleicher ID übernehmen
+        for c in data["characters"]:
+            if c["id"] in old_names:
+                c.update({k: old_names[c["id"]][k] for k in ("name", "color", "image")})
     save(pid, data)
     return data
 

@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Nedostupné: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "Nájdené: {}. Kliknutím vložíš text do poľa nižšie.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Nič sa nenašlo. Skús iné slová alebo text vlož sám.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Spojené: časy zo súboru LRC, speváci z textu piesne.",
     "Datei": "Súbor",
     "Untertitel in der Videodatei ({})": "Titulky vo videosúbore ({})",
     "YouTube-Untertitel ({})": "Titulky z YouTube ({})",

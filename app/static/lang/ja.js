@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "接続できません: {}。",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{}件見つかりました。クリックすると下の欄にテキストが入ります。",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "見つかりませんでした。別の言葉で試すか、テキストを直接貼り付けてください。",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "結合しました: タイミングはLRCファイルから、歌い手は歌詞から。",
     "Datei": "ファイル",
     "Untertitel in der Videodatei ({})": "動画ファイル内の字幕 ({})",
     "YouTube-Untertitel ({})": "YouTubeの字幕 ({})",

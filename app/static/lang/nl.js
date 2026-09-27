@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Niet bereikbaar: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} resultaten. Een klik zet de tekst in het veld hieronder.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Niets gevonden. Probeer andere woorden of plak de tekst zelf.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Samengevoegd: tijden uit het LRC-bestand, zangers uit de songtekst.",
     "Datei": "Bestand",
     "Untertitel in der Videodatei ({})": "Ondertitels in het videobestand ({})",
     "YouTube-Untertitel ({})": "YouTube-ondertitels ({})",

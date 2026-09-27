@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Går inte att nå: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} träffar. Ett klick lägger texten i fältet nedanför.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Inget hittades. Prova andra ord eller klistra in texten själv.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Sammanfogat: tider från LRC-filen, sångare från låttexten.",
     "Datei": "Fil",
     "Untertitel in der Videodatei ({})": "Undertexter i videofilen ({})",
     "YouTube-Untertitel ({})": "YouTube-undertexter ({})",

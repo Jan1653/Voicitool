@@ -83,8 +83,8 @@ def snap_speaker_changes(words, max_shift=2):
     words = [dict(w) for w in words]
     i = 1
     while i < len(words):
-        if words[i]["spk"] == words[i - 1]["spk"]:
-            i += 1
+        if words[i]["spk"] == words[i - 1]["spk"] or min(words[i]["spk"], words[i - 1]["spk"]) >= 1000:
+            i += 1   # gleicher Sprecher, oder beide aus Namen im vorgegebenen Text (NAMED_SPK): nicht verschieben
             continue
         old, new = words[i - 1]["spk"], words[i]["spk"]
         here = _boundary_strength(words, i)
@@ -146,6 +146,7 @@ def build_lines(words, pause_split=0.8, target_len=6.0, max_len=10.0, sentence_p
             or (w.get("sound") and last.get("sound") and (join_sounds is None or gap > join_sounds))
             or (new_sentence and (sentence_pause is None or gap > sentence_pause)
                 and not (join_short and length < join_short[0] and gap < join_short[1]))
+            or last.get("eol") == 2   # Zeilenende aus einer LRC-Datei (reftext.HARD_EOL): immer trennen
             or gap > pause_split * 2  # mitten im Satz nur bei deutlicher Pause
             or (w.get("seg") != last.get("seg") and length >= target_len * 0.5)
         )

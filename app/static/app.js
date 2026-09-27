@@ -707,8 +707,20 @@ function openRefTextDialog(file, current) {
             catch (e) { toast(e.message, true); b.disabled = false; return; }
             b.disabled = false;
           }
-          ta.value = text; count();
-          source = `${hit.source}: ${hit.title}`;
+          // LRC mit Zeiten und Liedtext mit Sängern („[Verse 1: Bowie]“) ergänzen sich: beide ins Feld,
+          // Voicitool nimmt die Zeiten aus dem einen und die Namen aus dem anderen
+          const timed = s => (s.match(/^\s*\[\d{1,2}:\d{2}/gm) || []).length >= 5;
+          const named = s => /^\s*\[[^\]\n]*:[^\]\n]*\p{L}[^\]\n]*\]\s*$/mu.test(s);   // nicht „[02:01.22]“
+          const old = ta.value.trim();
+          const both = timed(old) && named(old);   // schon zusammengeführt: ein weiterer Treffer ersetzt wieder
+          if (old && !both && ((timed(old) && !timed(text) && named(text)) || (timed(text) && !timed(old) && named(old)))) {
+            ta.value = old + '\n\n' + text; count();
+            source = `${source || tf('selbst eingefügt')} + ${hit.source}: ${hit.title}`;
+            status(tf('Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.'));
+          } else {
+            ta.value = text; count();
+            source = `${hit.source}: ${hit.title}`;
+          }
           $$('.rt-hit', list).forEach(x => x.classList.toggle('on', x === b));
           ta.scrollTop = 0;
         };

@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Nem érhető el: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} találat. Kattintással a szöveg az alábbi mezőbe kerül.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Nincs találat. Próbálj más szavakat, vagy illeszd be magad a szöveget.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Egyesítve: időzítés az LRC-fájlból, énekesek a dalszövegből.",
     "Datei": "Fájl",
     "Untertitel in der Videodatei ({})": "Felirat a videofájlban ({})",
     "YouTube-Untertitel ({})": "YouTube-felirat ({})",

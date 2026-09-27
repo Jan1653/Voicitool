@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Niedostępne: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "Wyniki: {}. Kliknięcie wstawia tekst do pola poniżej.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Nic nie znaleziono. Spróbuj innych słów albo wklej tekst sam.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Połączono: czasy z pliku LRC, wykonawcy z tekstu piosenki.",
     "Datei": "Plik",
     "Untertitel in der Videodatei ({})": "Napisy w pliku wideo ({})",
     "YouTube-Untertitel ({})": "Napisy z YouTube ({})",

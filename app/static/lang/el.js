@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Μη προσβάσιμο: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} αποτελέσματα. Ένα κλικ βάζει το κείμενο στο πεδίο από κάτω.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Δεν βρέθηκε τίποτα. Δοκίμασε άλλες λέξεις ή επικόλλησε μόνος σου το κείμενο.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Συνδυάστηκαν: χρόνοι από το αρχείο LRC, τραγουδιστές από τους στίχους.",
     "Datei": "Αρχείο",
     "Untertitel in der Videodatei ({})": "Υπότιτλοι στο αρχείο βίντεο ({})",
     "YouTube-Untertitel ({})": "Υπότιτλοι YouTube ({})",

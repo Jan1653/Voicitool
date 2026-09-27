@@ -236,11 +236,14 @@ def lrclib(query):
     data = json.loads(_get("https://lrclib.net/api/search?q=" + urllib.parse.quote(query)))
     out = []
     for r in data[:10]:
-        text = r.get("plainLyrics") or re.sub(r"\[\d+:\d+(?:\.\d+)?\]\s?", "", r.get("syncedLyrics") or "")
+        # mit Zeiten, wenn vorhanden: Voicitool setzt überhörte Zeilen damit an die richtige Stelle, und zusammen
+        # mit einem Genius-Text (Sänger) wird jede Zeile genau einer Person zugeordnet
+        text = r.get("syncedLyrics") or r.get("plainLyrics")
         if not text or r.get("instrumental"):
             continue
         out.append({"source": "LRCLIB", "id": str(r.get("id")), "title": r.get("trackName") or "?",
-                    "subtitle": " · ".join(x for x in (r.get("artistName"), r.get("albumName"), _fmt_len(r.get("duration") or 0)) if x),
+                    "subtitle": " · ".join(x for x in (r.get("artistName"), r.get("albumName"), _fmt_len(r.get("duration") or 0),
+                                                       "⏱ LRC" if r.get("syncedLyrics") else None) if x),
                     "text": text.strip()})
     return out
 
@@ -279,6 +282,45 @@ def _div_blocks(s, start_re):
     return out
 
 
+ITAL_ON, ITAL_OFF, BOLD_ON, BOLD_OFF = "\x01", "\x02", "\x03", "\x04"
+
+
+def _mark_styles(text):
+    """Kursiv/Fett aus Genius lesbar in den Text schreiben: ganze kursive Zeile „_…_“, ganze fette „**…**“,
+    in Abschnittsmarken den kursiven Namen „[Verse 1: Bowie & _Mercury_]“. Teilweise formatierte Zeilen bleiben
+    ohne Zeichen. Kursiv und Fett reichen bei Genius oft über mehrere Zeilen."""
+    out, ital, bold = [], False, False
+    for line in text.split("\n"):
+        chars = []   # (Zeichen, kursiv, fett)
+        for ch in line:
+            if ch == ITAL_ON: ital = True
+            elif ch == ITAL_OFF: ital = False
+            elif ch == BOLD_ON: bold = True
+            elif ch == BOLD_OFF: bold = False
+            else: chars.append((ch, ital, bold))
+        plain = "".join(c for c, _, _ in chars).strip()
+        seen = [(i, b) for c, i, b in chars if not c.isspace()]
+        if plain.startswith("[") and plain.endswith("]"):
+            # Marke: nur kursive Namen kennzeichnen („[Verse 1: Bowie & _Mercury_]“); ganz kursiv sagt nichts
+            if all(i for i, _ in seen):
+                out.append(plain)
+                continue
+            s, cur = "", False
+            for c, i, _ in chars:
+                if i != cur and not c.isspace():
+                    s += "_"
+                    cur = i
+                s += c
+            out.append((s + ("_" if cur else "")).strip())
+        elif seen and all(i for i, _ in seen):
+            out.append(f"_{plain}_")
+        elif seen and all(b for _, b in seen):
+            out.append(f"**{plain}**")
+        else:
+            out.append(plain)
+    return "\n".join(out)
+
+
 def fetch_genius(url):
     """Liedtext einer Genius-Seite holen. Abschnittsmarken wie [Refrain] fliegen raus."""
     if not re.match(r"https://genius\.com/[A-Za-z0-9%!.,'()+_-]+\Z", url or ""):
@@ -290,10 +332,13 @@ def fetch_genius(url):
             inner = inner.replace(junk, "")   # Kopfzeile mit Mitwirkenden und Übersetzungen
         inner = re.sub(r"<br\s*/?>", "\n", inner)
         inner = re.sub(r"</(p|div)>", "\n", inner)
+        # Kursiv und Fett merken: in Duetten zeigt Genius so, wer eine Zeile singt (kursiv = der kursive Name)
+        inner = re.sub(r"<(/?)(?:i|em)\b[^>]*>", lambda m: ITAL_OFF if m.group(1) else ITAL_ON, inner)
+        inner = re.sub(r"<(/?)(?:b|strong)\b[^>]*>", lambda m: BOLD_OFF if m.group(1) else BOLD_ON, inner)
         parts.append(html.unescape(re.sub(r"<[^>]+>", "", inner)))
     # Abschnittsmarken wie „[Verse 2: Natalia]“ bleiben stehen: Voicitool liest daraus, wer singt,
     # und entfernt sie danach selbst aus dem Text.
-    lines = [l.strip() for l in "\n".join(parts).splitlines() if l.strip()]
+    lines = [l.strip() for l in _mark_styles("\n".join(parts)).splitlines() if l.strip()]
     if not lines:
         raise RuntimeError("Von dieser Genius-Seite kam kein Text. Probier einen anderen Treffer.")
     return "\n".join(lines)

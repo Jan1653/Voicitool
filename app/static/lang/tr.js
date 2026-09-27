@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Ulaşılamıyor: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} sonuç. Tıklamak metni aşağıdaki alana aktarır.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Hiçbir şey bulunamadı. Başka kelimeler dene ya da metni kendin yapıştır.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Birleştirildi: zamanlar LRC dosyasından, şarkıcılar şarkı sözlerinden.",
     "Datei": "Dosya",
     "Untertitel in der Videodatei ({})": "Video dosyasındaki altyazılar ({})",
     "YouTube-Untertitel ({})": "YouTube altyazıları ({})",

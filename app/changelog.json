@@ -1,5 +1,15 @@
 [
   {
+    "build": 59,
+    "date": "2026-09-27",
+    "changes": [
+      "Lyrics with singer names now decide who sings each line, not only what the characters are called. Duet lines like [Chorus: Bowie & Mercury] go to both, and on Genius the italic lines go to the singer in italics.",
+      "LRC lyrics with timestamps and Genius lyrics with singers work together: pick one after the other under \"Text vorgeben\" and Voicitool takes the timing from the LRC file and the singers from Genius. Lines Whisper missed, like scat intros, land at their LRC time.",
+      "LRCLIB results now keep their timestamps (marked with a clock).",
+      "Pasted Genius lyrics no longer bring the \"You might also like\" block, the contributors line or \"Embed\" into the pack, and section names from translated Genius pages (Verso, Coro, Puente) no longer become characters."
+    ]
+  },
+  {
     "build": 58,
     "date": "2026-09-27",
     "changes": [

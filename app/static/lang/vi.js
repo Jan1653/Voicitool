@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Không kết nối được: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} kết quả. Nhấp để đưa văn bản vào ô bên dưới.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Không tìm thấy gì. Hãy thử từ khác hoặc tự dán văn bản.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Đã gộp: thời gian từ tệp LRC, người hát từ lời bài hát.",
     "Datei": "Tệp",
     "Untertitel in der Videodatei ({})": "Phụ đề trong tệp video ({})",
     "YouTube-Untertitel ({})": "Phụ đề YouTube ({})",

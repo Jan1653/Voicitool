@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Inaccesibil: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} rezultate. Un clic pune textul în câmpul de mai jos.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Nu s-a găsit nimic. Încearcă alte cuvinte sau lipește textul singur.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Combinat: timpii din fișierul LRC, cântăreții din versuri.",
     "Datei": "Fișier",
     "Untertitel in der Videodatei ({})": "Subtitrări în fișierul video ({})",
     "YouTube-Untertitel ({})": "Subtitrări YouTube ({})",

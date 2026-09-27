@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "संपर्क नहीं हो पाया: {}।",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} नतीजे। क्लिक करने पर टेक्स्ट नीचे वाले फ़ील्ड में आ जाता है।",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "कुछ नहीं मिला। दूसरे शब्द आज़माएं या टेक्स्ट खुद पेस्ट करें।",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "जोड़ा गया: समय LRC फ़ाइल से, गायक गीत के बोल से।",
     "Datei": "फ़ाइल",
     "Untertitel in der Videodatei ({})": "वीडियो फ़ाइल में सबटाइटल ({})",
     "YouTube-Untertitel ({})": "YouTube सबटाइटल ({})",

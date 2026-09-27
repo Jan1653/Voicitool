@@ -230,6 +230,7 @@
     "Nicht erreichbar: {}.": "Kan ikke nås: {}.",
     "{} Treffer. Klick übernimmt den Text ins Feld unten.": "{} resultater. Et klik sætter teksten ind i feltet nedenfor.",
     "Nichts gefunden. Probier andere Wörter oder füg den Text selbst ein.": "Intet fundet. Prøv andre ord, eller indsæt teksten selv.",
+    "Zusammengeführt: Zeiten aus der LRC-Datei, Sänger aus dem Liedtext.": "Samlet: tider fra LRC-filen, sangere fra sangteksten.",
     "Datei": "Fil",
     "Untertitel in der Videodatei ({})": "Undertekster i videofilen ({})",
     "YouTube-Untertitel ({})": "YouTube-undertekster ({})",
