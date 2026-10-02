@@ -1,5 +1,12 @@
 [
   {
+    "build": 63,
+    "date": "2026-10-02",
+    "changes": [
+      "Security: other websites open in your browser can no longer talk to Voicitool in the background. Before, a website could for example start the uninstaller or an update, or put files into your inbox. Voicitool now only answers its own window."
+    ]
+  },
+  {
     "build": 62,
     "date": "2026-09-27",
     "changes": [

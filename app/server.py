@@ -65,6 +65,71 @@ async def no_cache_static(request, call_next):
     return response
 
 
+# ---------------------------------------------------------------- Schutz vor fremden Webseiten
+# Der Server lauscht nur auf 127.0.0.1. Trotzdem kann jede Webseite im Browser Anfragen an
+# 127.0.0.1:<Port> schicken (z. B. Deinstallation oder Update auslösen, Dateien in den Eingang legen)
+# oder per DNS-Rebinding unter eigenem Namen hierher zeigen und alles mitlesen.
+# Deshalb: nur Anfragen an die eigene Adresse, und an /api nur von der eigenen Oberfläche.
+OWN_HOSTS = {f"127.0.0.1:{config.PORT}", f"localhost:{config.PORT}"}
+OWN_ORIGINS = {f"http://{h}" for h in OWN_HOSTS}
+
+
+def _inline_script_hashes():
+    """Hashes der Inline-Skripte in index.html, damit die CSP ohne 'unsafe-inline' auskommt."""
+    import base64
+    import hashlib
+    try:
+        html = (config.STATIC_DIR / "index.html").read_text(encoding="utf8")
+    except OSError:
+        return ""
+    out = []
+    for code in re.findall(r"<script>([\s\S]*?)</script>", html):
+        code = code.replace("\r\n", "\n")   # Browser hashen mit \n als Zeilenende
+        out.append("'sha256-%s'" % base64.b64encode(hashlib.sha256(code.encode("utf8")).digest()).decode())
+    return " ".join(out)
+
+
+SECURITY_HEADERS = {
+    "Content-Security-Policy": "; ".join([
+        "default-src 'self'",
+        f"script-src 'self' {_inline_script_hashes()}".strip(),
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "media-src 'self' blob:",
+        # Nutzungsstatistik (abschaltbar in den Einstellungen) geht direkt aus der Oberfläche an GoatCounter
+        "connect-src 'self'" + (f" https://{config.STATS_SITE}.goatcounter.com"
+                                if re.fullmatch(r"[a-z0-9-]+", config.STATS_SITE or "") else ""),
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ]),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+}
+
+
+@app.middleware("http")
+async def only_own_ui(request, call_next):
+    from fastapi.responses import PlainTextResponse
+    # DNS-Rebinding: fremder Name, der auf 127.0.0.1 zeigt
+    if request.headers.get("host", "") not in OWN_HOSTS:
+        return PlainTextResponse("Unbekannte Adresse", status_code=421)
+    # CSRF: Anfrage kommt von einer anderen Seite (auch von einem anderen Port auf diesem PC)
+    origin = request.headers.get("origin")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and origin and origin not in OWN_ORIGINS:
+        return PlainTextResponse("Nur von der Voicitool-Oberfläche", status_code=403)
+    if request.url.path.startswith("/api/") and request.headers.get("sec-fetch-site") in ("cross-site", "same-site"):
+        return PlainTextResponse("Nur von der Voicitool-Oberfläche", status_code=403)
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
 # ---------------------------------------------------------------- Jobs
 class Cancelled(Exception):
     """Job wurde vom Nutzer abgebrochen."""
